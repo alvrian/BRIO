@@ -7,3 +7,6 @@ envs/
 cache/
 result/
 compare-mt/
+dataset
+cnndm
+*.zip
