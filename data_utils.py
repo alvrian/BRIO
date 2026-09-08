@@ -15,6 +15,7 @@ class BrioDataset(Dataset):
     def __init__(self, fdir, model_type, max_len=-1, is_test=False, total_len=512, is_sorted=True, max_num=-1, is_untok=True, is_pegasus=False, num=-1):
         """ data format: article, abstract, [(candidiate_i, score_i)] """
         self.isdir = os.path.isdir(fdir)
+        print(f'start processing data in {fdir}')
         if self.isdir:
             self.fdir = fdir
             if num > 0:

@@ -360,6 +360,8 @@ def run(rank, args):
     collate_fn_val = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=True)
     train_set = BrioDataset(f"./{args.dataset}/{args.datatype}/train", args.model_type, max_len=args.max_len, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus)
     val_set = BrioDataset(f"./{args.dataset}/{args.datatype}/val", args.model_type, is_test=True, max_len=512, is_sorted=False, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus)
+    print(f'done extracting data for {args.dataset} for BRIO')
+    #is_mp -> multi gpu
     if is_mp:
         train_sampler = torch.utils.data.distributed.DistributedSampler(
     	 train_set, num_replicas=world_size, rank=rank, shuffle=True)
@@ -373,6 +375,7 @@ def run(rank, args):
         val_dataloader = DataLoader(val_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn_val)
         val_gen_dataloader = DataLoader(val_set, batch_size=8, shuffle=False, num_workers=4, collate_fn=collate_fn_val)
     # build models
+    print(f'start building model')
     model_path = args.pretrained if args.pretrained is not None else args.model_type
     model = BRIO(model_path, tok.pad_token_id, is_pegasus=args.is_pegasus)
     if len(args.model_pt) > 0:
@@ -385,6 +388,7 @@ def run(rank, args):
         else:
             model = model.cuda()
     model.train()
+    
     # set the model to scoring mode
     if is_mp:
         model.module.scoring_mode()
@@ -533,6 +537,7 @@ if __name__ ==  "__main__":
     parser.add_argument("--model_pt", default="", type=str, help="model path")
     parser.add_argument("--config", default="", type=str, help="config path")
     args = parser.parse_args()
+    print("start...")
     if args.cuda is False:
         if args.evaluate:
             evaluation(args)
