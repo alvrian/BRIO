@@ -45,7 +45,7 @@ class BrioDataset(Dataset):
     def __len__(self):
         return self.num
 
-def __getitem__(self, idx):
+    def __getitem__(self, idx):
         if self.isdir:
             with open(self.available_files[idx], "r") as f:
                 data = json.load(f)
