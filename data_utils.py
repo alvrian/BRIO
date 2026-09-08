@@ -3,7 +3,7 @@ import os
 import json
 import torch
 from transformers import BartTokenizer, PegasusTokenizer
-
+import glob
 
 def to_cuda(batch, gpuid):
     for n in batch:
@@ -18,10 +18,11 @@ class BrioDataset(Dataset):
         print(f'start processing data in {fdir}')
         if self.isdir:
             self.fdir = fdir
+            self.available_files = sorted(glob.glob(os.path.join(self.fdir, "*.json")))
             if num > 0:
-                self.num = min(len(os.listdir(fdir)), num)
+                self.num = min(len(self.available_files), num)
             else:
-                self.num = len(os.listdir(fdir))
+                self.num = len(self.available_files)
         else:
             with open(fdir) as f:
                 self.files = [x.strip() for x in f]
@@ -44,9 +45,9 @@ class BrioDataset(Dataset):
     def __len__(self):
         return self.num
 
-    def __getitem__(self, idx):
+def __getitem__(self, idx):
         if self.isdir:
-            with open(os.path.join(self.fdir, "%d.json"%idx), "r") as f:
+            with open(self.available_files[idx], "r") as f:
                 data = json.load(f)
         else:
             with open(self.files[idx]) as f:
@@ -88,6 +89,7 @@ class BrioDataset(Dataset):
             }
         if self.is_test:
             result["data"] = data
+            
         return result
 
 
@@ -113,4 +115,5 @@ def collate_mp_brio(batch, pad_token_id, is_test=False):
         }
     if is_test:
         result["data"] = data
+        
     return result
