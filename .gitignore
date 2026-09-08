@@ -9,4 +9,5 @@ result/
 compare-mt/
 dataset
 cnndm
+cnndm_subset
 *.zip
