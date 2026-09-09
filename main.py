@@ -294,6 +294,7 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
                     num_beams=args.num_beams,
                     length_penalty=args.length_penalty,
                     early_stopping=True,
+                    num_beam_groups=1
                 )
                 dec = [tok.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
                 for (hypothesis, x) in zip(dec, samples):
