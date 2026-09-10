@@ -31,7 +31,7 @@ mkl-service==2.4.0
 mpmath==1.3.0
 networkx==3.1
 nltk==3.6.5
-numpy @ file:///tmp/build/80754af9/numpy_and_numpy_base_1626271506491/work
+numpy 
 nvidia-cublas-cu12==12.1.3.1
 nvidia-cuda-cupti-cu12==12.1.105
 nvidia-cuda-nvrtc-cu12==12.1.105
@@ -45,9 +45,9 @@ nvidia-nccl-cu12==2.20.5
 nvidia-nvjitlink-cu12==12.9.86
 nvidia-nvtx-cu12==12.1.105
 oauthlib==3.3.1
-olefile @ file:///home/conda/feedstock_root/build_artifacts/olefile_1602866521163/work
+olefile
 packaging==26.2
-Pillow @ file:///tmp/build/80754af9/pillow_1625670623564/work
+Pillow 
 portalocker==3.0.0
 protobuf==3.20.3
 pyasn1==0.6.4
@@ -64,8 +64,7 @@ sacrebleu==2.5.1
 sacremoses==0.1.1
 safetensors==0.5.3
 sentencepiece==0.1.96
-six @ file:///home/conda/feedstock_root/build_artifacts/six_1620240208055/work
-sympy==1.13.3
+six 
 tabulate==0.9.0
 tensorboard==2.6.0
 tensorboard-data-server==0.6.1
