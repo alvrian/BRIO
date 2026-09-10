@@ -292,6 +292,7 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
                     min_length=args.gen_min_len + 1,  # +1 from original because we start at step=1
                     no_repeat_ngram_size=3,
                     num_beams=args.num_beams,
+                    num_return_sequences=1,
                     length_penalty=args.length_penalty,
                     early_stopping=True,
                     num_beam_groups=1
