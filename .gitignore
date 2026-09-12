@@ -11,4 +11,11 @@ dataset
 cnndm
 cnndm_subset
 *.zip
+<<<<<<< Updated upstream
 cnndm_subset_20k
+=======
+cnndm_subset_20k
+backup
+compare-mt
+local_note.txt
+>>>>>>> Stashed changes

@@ -1,9 +1,11 @@
 import json
+# pyrefly: ignore [missing-import]
 from compare_mt.rouge.rouge_scorer import RougeScorer
 from multiprocessing import Pool
 import os
 from tqdm import tqdm
 import argparse
+# pyrefly: ignore [missing-import]
 from nltk import sent_tokenize
 
 all_scorer = RougeScorer(['rouge1', 'rouge2', 'rougeLsum'], use_stemmer=True)

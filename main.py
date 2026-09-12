@@ -5,7 +5,9 @@ import argparse
 import numpy as np
 import os
 import random
+# pyrefly: ignore [missing-import]
 from compare_mt.rouge.rouge_scorer import RougeScorer
+# pyrefly: ignore [missing-import]
 from transformers import BartTokenizer, PegasusTokenizer
 from utils import Recorder
 from data_utils import to_cuda, collate_mp_brio, BrioDataset
@@ -16,6 +18,7 @@ from functools import partial
 from model import RankingLoss, BRIO
 import logging
 from label_smoothing_loss import label_smoothing_loss
+# pyrefly: ignore [missing-import]
 from nltk import sent_tokenize, word_tokenize
 from config import cnndm_setting, xsum_setting
 from tqdm import tqdm
