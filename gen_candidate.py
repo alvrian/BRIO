@@ -102,8 +102,11 @@ def generate_summaries_xsum(args):
             for hypothesis in dec:
                     fout.write(hypothesis + '\n')
                     fout.flush()
-
-
+def generate_summaries_liputan6(args):
+    
+    
+    return True
+    
 if __name__ ==  "__main__":
     parser = argparse.ArgumentParser(description='Parameters')
     parser.add_argument("--gpuid", type=int, default=0, help="gpu id")

@@ -12,3 +12,5 @@ cnndm
 cnndm_subset
 *.zip
 cnndm_subset_20k
+backup
+compare-mt
