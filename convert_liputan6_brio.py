@@ -1,47 +1,56 @@
 import json
 import os
 import argparse
+import glob
 
-def process_liputan6(input_path, output_dir, split_name):
-    os.makedirs(output_dir, exist_ok=True)
-    
-    source_file = os.path.join(output_dir, f"{split_name}.source")
-    target_file = os.path.join(output_dir, f"{split_name}.target")
-    
-    with open(input_path, 'r', encoding='utf-8') as fin, \
-         open(source_file, 'w', encoding='utf-8') as fs, \
-         open(target_file, 'w', encoding='utf-8') as ft:
+def process_partition(input_dir, output_dir, partition):
+    partition_path = os.path.join(input_dir, partition)
+    if not os.path.isdir(partition_path):
+        print(f"Directory {partition_path} does not exist. Skipping.")
+        return
+
+    for split in ['train', 'dev', 'test']:
+        split_path = os.path.join(partition_path, split)
+        if not os.path.isdir(split_path):
+            continue
+            
+        split_name = "val" if split == "dev" else split
         
-        # Determine if it's a single json object or multiple lines
-        content = fin.read().strip()
-        lines = content.split('\n')
+        output_split_dir = os.path.join(output_dir, partition)
+        os.makedirs(output_split_dir, exist_ok=True)
         
-        for line in lines:
-            if not line.strip():
-                continue
-            data = json.loads(line)
+        source_file = os.path.join(output_split_dir, f"{split_name}.source")
+        target_file = os.path.join(output_split_dir, f"{split_name}.target")
+        
+        json_files = glob.glob(os.path.join(split_path, "*.json"))
+        
+        with open(source_file, 'w', encoding='utf-8') as fs, \
+             open(target_file, 'w', encoding='utf-8') as ft:
+             
+            for json_file in json_files:
+                with open(json_file, 'r', encoding='utf-8') as fin:
+                    data = json.load(fin)
+                    
+                    article_tokens = [token for sentence in data.get('clean_article', []) for token in sentence]
+                    summary_tokens = [token for sentence in data.get('clean_summary', []) for token in sentence]
+                    
+                    article_text = " ".join(article_tokens).replace('\n', ' ')
+                    summary_text = " ".join(summary_tokens).replace('\n', ' ')
+                    
+                    if article_text.strip() and summary_text.strip():
+                        fs.write(article_text + '\n')
+                        ft.write(summary_text + '\n')
             
-            # clean_article and clean_summary are lists of list of tokens
-            article_tokens = [token for sentence in data.get('clean_article', []) for token in sentence]
-            summary_tokens = [token for sentence in data.get('clean_summary', []) for token in sentence]
-            
-            # join by space
-            article_text = " ".join(article_tokens).replace('\n', ' ')
-            summary_text = " ".join(summary_tokens).replace('\n', ' ')
-            
-            fs.write(article_text + '\n')
-            ft.write(summary_text + '\n')
-            
-    print(f"Processed {len(lines)} examples into {output_dir}")
+        print(f"Processed {len(json_files)} examples for {partition}/{split} into {output_split_dir}")
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=str, required=True, help="Path to liputan6 JSON file")
+    parser.add_argument("--input_dir", type=str, required=True, help="Path to liputan6 dataset root containing canonical/xtreme folders")
     parser.add_argument("--output_dir", type=str, required=True, help="Output directory mapping for BRIO")
-    parser.add_argument("--split", type=str, default="test", help="train/val/test")
     args = parser.parse_args()
     
-    process_liputan6(args.input, args.output_dir, args.split)
+    process_partition(args.input_dir, args.output_dir, 'canonical')
+    process_partition(args.input_dir, args.output_dir, 'xtreme')
 
 if __name__ == "__main__":
     main()
