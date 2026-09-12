@@ -62,7 +62,8 @@ def base_setting(args):
     args.adding = getattr(args, "adding", 0) # used for numerical stability
     args.eval_interval = getattr(args, "eval_interval", 1000) # evaluation intervals
     args.num_beams = getattr(args, "num_beams", 4) # number of beams for beam search
-
+    args.dataset_folder = getattr(args, "dataset_folder", None) #non default path to dataset directory
+    
 def evaluation(args):
     # load data
     if args.config == "cnndm":
@@ -295,9 +296,11 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
                     min_length=args.gen_min_len + 1,  # +1 from original because we start at step=1
                     no_repeat_ngram_size=3,
                     num_beams=args.num_beams,
+                    num_return_sequences=1,
                     length_penalty=args.length_penalty,
                     early_stopping=True,
-                    num_beam_groups=1
+                    num_beam_groups=1,
+                    # bos_token_id=tok.bos_token_id, #ganti model.py kalau mau dipake
                 )
                 dec = [tok.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
                 for (hypothesis, x) in zip(dec, samples):
@@ -348,7 +351,7 @@ def run(rank, args):
     torch.cuda.manual_seed_all(args.seed)
     np.random.seed(args.seed)
     random.seed(args.seed)
-    gpuid = args.gpuid[rank]
+    gpuid = args.gpuid[rank] if args.cuda else "cpu"
     is_master = rank == 0
     is_mp = len(args.gpuid) > 1
     world_size = len(args.gpuid)
@@ -362,8 +365,16 @@ def run(rank, args):
         tok = BartTokenizer.from_pretrained(args.model_type)
     collate_fn = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=False)
     collate_fn_val = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=True)
-    train_set = BrioDataset(f"./{args.dataset}/{args.datatype}/train", args.model_type, max_len=args.max_len, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus)
-    val_set = BrioDataset(f"./{args.dataset}/{args.datatype}/val", args.model_type, is_test=True, max_len=512, is_sorted=False, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus)
+    #change non standard dataset directory if specified (e.g. for subsets of the dataset)
+    if args.dataset_folder is not None:
+        train_path = os.path.join(args.dataset_folder, args.datatype, "train")
+        val_path = os.path.join(args.dataset_folder, args.datatype, "val")
+    else:
+        train_path = f"./{args.dataset}/{args.datatype}/train"
+        val_path = f"./{args.dataset}/{args.datatype}/val"
+        
+    train_set = BrioDataset(train_path, args.model_type, max_len=args.max_len, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus)
+    val_set = BrioDataset(val_path, args.model_type, is_test=True, max_len=512, is_sorted=False, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus)
     print(f'done extracting data for {args.dataset} for BRIO')
     #is_mp -> multi gpu
     if is_mp:
@@ -383,7 +394,8 @@ def run(rank, args):
     model_path = args.pretrained if args.pretrained is not None else args.model_type
     model = BRIO(model_path, tok.pad_token_id, is_pegasus=args.is_pegasus)
     if len(args.model_pt) > 0:
-        model.load_state_dict(torch.load(os.path.join("./cache", args.model_pt), map_location=f'cuda:{gpuid}'))
+        map_loc = f'cuda:{gpuid}' if args.cuda else 'cpu'
+        model.load_state_dict(torch.load(os.path.join("./cache", args.model_pt), map_location=map_loc))
     if args.cuda:
         if is_mp:
             # Using DDP
@@ -532,7 +544,7 @@ def main(args):
 if __name__ ==  "__main__":
     parser = argparse.ArgumentParser(description='Parameters')
     parser.add_argument("--cuda", action="store_true", help="use cuda")
-    parser.add_argument("--gpuid", nargs='+', type=int, default=0, help="gpu ids")
+    parser.add_argument("--gpuid", nargs='+', type=int, default=[0], help="gpu ids")
     parser.add_argument("-e", "--evaluate", action="store_true", help="evaluate model")
     parser.add_argument("-r", "--do_reranking", action="store_true", help="do reranking evaluation")
     parser.add_argument("-g", "--do_generation", action="store_true", help="do generation evaluation")
@@ -540,6 +552,8 @@ if __name__ ==  "__main__":
     parser.add_argument("-p", "--port", type=int, default=12355, help="port")
     parser.add_argument("--model_pt", default="", type=str, help="model path")
     parser.add_argument("--config", default="", type=str, help="config path")
+    parser.add_argument("--dataset_folder", default=None, type=str, help="custom path to dataset folder")
+
     args = parser.parse_args()
     print("start...")
     if args.cuda is False:

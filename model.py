@@ -126,7 +126,10 @@ class BRIO(nn.Module):
         synced_gpus: Optional[bool] = None,
         **model_kwargs,
     ):
+        #please fix later 
         return self.model.generate(input_ids=input_ids,
+            bos_token_id=self.model.config.bos_token_id,
+            decoder_start_token_id=self.model.config.decoder_start_token_id,                       
             max_length=max_length,
             min_length=min_length,
             do_sample=do_sample,
@@ -137,7 +140,7 @@ class BRIO(nn.Module):
             top_p=top_p,
             repetition_penalty=repetition_penalty,
             bad_words_ids=bad_words_ids,
-            bos_token_id=bos_token_id,
+            #bos_token_id=bos_token_id, #this
             pad_token_id=pad_token_id,
             eos_token_id=eos_token_id,
             length_penalty=length_penalty,
@@ -145,7 +148,7 @@ class BRIO(nn.Module):
             encoder_no_repeat_ngram_size=encoder_no_repeat_ngram_size,
             num_return_sequences=num_return_sequences,
             max_time=max_time,
-            decoder_start_token_id=decoder_start_token_id,
+            #decoder_start_token_id=decoder_start_token_id,#this
             use_cache=use_cache,
             num_beam_groups=num_beam_groups,
             diversity_penalty=diversity_penalty,

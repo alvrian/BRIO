@@ -11,6 +11,7 @@ dataset
 cnndm
 cnndm_subset
 *.zip
+<<<<<<< HEAD
 <<<<<<< Updated upstream
 cnndm_subset_20k
 =======
@@ -19,3 +20,8 @@ backup
 compare-mt
 local_note.txt
 >>>>>>> Stashed changes
+=======
+cnndm_subset_20k
+backup
+compare-mt
+>>>>>>> b63a0916524a7f69eb7823b6437423bbcf2082e6

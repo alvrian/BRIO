@@ -103,6 +103,7 @@ def generate_summaries_xsum(args):
             for hypothesis in dec:
                     fout.write(hypothesis + '\n')
                     fout.flush()
+<<<<<<< HEAD
 <<<<<<< Updated upstream
 
 
@@ -172,6 +173,13 @@ def generate_summaries_liputan6(args):
     return True
     
 >>>>>>> Stashed changes
+=======
+def generate_summaries_liputan6(args):
+    
+    
+    return True
+    
+>>>>>>> b63a0916524a7f69eb7823b6437423bbcf2082e6
 if __name__ ==  "__main__":
     parser = argparse.ArgumentParser(description='Parameters')
     parser.add_argument("--gpuid", type=int, default=0, help="gpu id")
