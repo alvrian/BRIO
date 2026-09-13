@@ -1,0 +1,368 @@
+{
+    "article": [
+        "for those caught using the streets of mumbai as a public toilet , the pavement is not the only thing to face getting wet .",
+        "vigilantes have been patrolling the indian city with a water tanker - and spraying anyone who urinates in public .",
+        "the vehicle , dubbed the ` p *** ing tanker ' , features a huge water canon , a logo of a person urinating and a large red sign , reading : ` you stop , we stop ' . . scroll down for video .",
+        "action : vigilantes have been patrolling mumbai with a water tanker - and spraying anyone who pees in public .",
+        "mid-flow : a motorcyclist caught using the streets of the indian city as a public toilet is blasted by the activists .",
+        "on patrol : the tanker , dubbed the ` p *** ing tanker ' , features an enormous water canon and a logo of a person urinating .",
+        "it also includes a rooftop area , from which the masked vigilantes can spray members of the public .",
+        "it also includes a large rooftop area , from which the masked vigilantes can blast unsuspecting members of the public with water .",
+        "the bright yellow tanker is believed to be the creation of an anonymous ` anti-public urination activist group ' , called the clean indian .",
+        "it aims to deter those who feel no shame relieving themselves in the streets of india 's most populous city by turning the tables and ` taking a leak ' on them .",
+        "it also hopes to combat the health risk of public urination - which the activists claim remains a major problem in the country - ` one spray at a time ' . . soaked : the bright yellow tanker is believed to be the creation of an anonymous ` anti-public urination activist group ' , called the clean indian .",
+        "above , an indian man caught urinating in the street is blasted by the vigilantes .",
+        "aim : it aims to deter those who feel no shame relieving themselves in the streets of india 's most populous city .",
+        "the group has posted a video of the tanker at work on youtube , with the caption : ` you wont ' believe what we did to people using the outdoors as a toilet ' -lrb- sic -rrb- .",
+        "but the footage has divided opinion - with many users claiming that a lack of public toilets in the state of maharashtra is the underlying problem , not those peeing in the street . . one user wrote : ` this is not the solution .",
+        "lack of availability of public toilets is the problem that is causing general public to act like that . '",
+        "health risk : it also hopes to combat the health risk of public urination - which the activists claim remains a major problem in the country - ` one spray at a time ' .",
+        "above , a man urinates against a wall in mumbai .",
+        "taking aim : the group has posted a video of the tanker on youtube , saying : ` you wont ' believe what we did to people using the outdoors as a toilet ' -lrb- sic -rrb- .",
+        "above , a masked vigilante sprays water at a member of the public .",
+        "on the lookout : the footage has divided opinion , with many users saying a lack of public toilets is the problem .",
+        "meanwhile , another said : ` that 's degrading for those men even if they are doing something wrong . '",
+        "but one woman wrote : ` hilarious !",
+        "the clean indian anti-public urination activists have a novel way of punishing men who p *** in public . '",
+        "and another added : ` this is a good way to teach them -lrb- public urinators -rrb- to use public toilets ! '"
+    ],
+    "abstract": [
+        "vigilantes have been patrolling the streets of mumbai with a water tanker .",
+        "tanker features enormous water canon and the sign : ` you stop , we stop ' also includes rooftop area , from which masked activists can spray public .",
+        "it aims to deter those who feel no shame relieving themselves on streets .",
+        "vehicle is believed to be manned by anonymous group , the clean indian ."
+    ],
+    "candidates": [
+        [
+            [
+                "vigilantes have been patrolling indian city with a water tanker .",
+                "vehicle features huge water canon and logo of person urinating .",
+                "also includes rooftop area , from which vigilantes can spray members of public .",
+                "it is believed to be creation of anonymous ` anti-public urination activist group ' aim is to deter those who feel no shame relieving themselves in streets .",
+                "but footage has divided opinion , with many saying lack of toilets is problem ."
+            ],
+            0.5720259581434799
+        ],
+        [
+            [
+                "the ` p *** ing tanker ' features huge water canon and logo of person urinating .",
+                "also includes rooftop area , from which masked vigilantes can spray members of the public .",
+                "created by anonymous ` anti-public urination activist group ' , called the clean indian .",
+                "aim is to deter those who feel no shame relieving themselves in streets of india 's most populous city .",
+                "but footage has divided opinion , with many users saying lack of public toilets is the problem ."
+            ],
+            0.48922056384742946
+        ],
+        [
+            [
+                "` p *** ing tanker ' features huge water canon , logo of person urinating and sign .",
+                "it is believed to be creation of anonymous ` anti-public urination activist group ' activists hope to deter those who feel no shame relieving themselves in streets of india 's most populous city by turning the tables .",
+                "also hopes to combat health risk of public urination ` one spray at a time ' but footage has divided opinion , with many users saying lack of public toilets is the problem ."
+            ],
+            0.3702847940625602
+        ],
+        [
+            [
+                "vigilantes have been patrolling mumbai with a water tanker .",
+                "vehicle features huge water canon and logo of person urinating .",
+                "also includes rooftop area , from which vigilantes can spray members of public .",
+                "it is believed to be creation of anonymous ` anti-public urination activist group ' aim is to deter those who feel no shame relieving themselves in streets .",
+                "but footage has divided opinion , with many saying lack of toilets is problem ."
+            ],
+            0.5816506410256409
+        ],
+        [
+            [
+                "the tanker , dubbed the ` p *** ing tanker ' , features a huge water canon .",
+                "it also features a logo of a person urinating and a large red sign .",
+                "it is believed to be the creation of an anonymous ` anti-public urination activist group ' the clean indian aims to deter those who feel no shame relieving themselves in the streets of india 's most populous city .",
+                "it hopes to combat the health risk of public urination ` one spray at a time '"
+            ],
+            0.4264705882352941
+        ],
+        [
+            [
+                "tanker features huge water canon , logo of person urinating and sign .",
+                "it is believed to be creation of anonymous ` anti-public urination activist group ' clean indian aims to deter those who feel no shame relieving themselves in streets .",
+                "also hopes to combat health risk of public urination ` one spray at a time ' but footage has divided opinion , with many saying lack of public toilets is the problem ."
+            ],
+            0.43170603674540686
+        ],
+        [
+            [
+                "vigilantes have been patrolling indian city with water tanker .",
+                "features huge water canon , logo of person urinating and sign : ` you stop , we stop ' aim is to deter those who feel no shame relieving themselves in streets .",
+                "also hopes to combat health risk of public urination ` one spray at a time ' but footage has divided opinion , with many saying lack of toilets is problem .",
+                "one user said : ` lack of availability of public toilets is the problem '"
+            ],
+            0.4359045762554534
+        ],
+        [
+            [
+                "vehicle features huge water canon , logo of person urinating and sign .",
+                "also includes rooftop area , from which vigilantes can spray members of public .",
+                "created by anonymous ` anti-public urination activist group ' , called the clean indian .",
+                "aim is to deter those who feel no shame relieving themselves in streets .",
+                "also hopes to combat health risk of public urination ` one spray at a time ' but footage has divided opinion , with some saying lack of toilets is the problem ."
+            ],
+            0.47190517998244075
+        ],
+        [
+            [
+                "vigilantes have been patrolling indian city with water tanker .",
+                "features huge water canon , logo of person urinating and sign : ` you stop , we stop ' aim is to deter those who feel no shame relieving themselves in streets .",
+                "also hopes to combat health risk of public urination ` one spray at a time ' but footage has divided opinion , with many saying lack of toilets is problem ."
+            ],
+            0.4677372393558647
+        ],
+        [
+            [
+                "vigilantes have been patrolling indian city with a water tanker in bid to deter public urination .",
+                "vehicle , dubbed ` p *** ing tanker ' , features huge water canon and logo of person urinating .",
+                "also includes rooftop area , from which masked vigilantes can spray members of the public .",
+                "activists claim it is part of an anti-public urination group , called the clean indian .",
+                "but footage has divided opinion , with many saying lack of public toilets is the problem ."
+            ],
+            0.45416855118347654
+        ],
+        [
+            [
+                "the tanker , dubbed the ` p *** ing tanker ' , features a huge water canon .",
+                "it also features a logo of a person urinating and a large red sign .",
+                "it is believed to be the creation of an anonymous ` anti-public urination activist group ' the clean indian aims to deter those who feel no shame relieving themselves in the streets of india 's most populous city ."
+            ],
+            0.46782682702860096
+        ],
+        [
+            [
+                "vehicle features huge water canon , logo of person urinating and sign .",
+                "also includes rooftop area , from which vigilantes can spray members of public .",
+                "created by anonymous ` anti-public urination activist group ' , called the clean indian .",
+                "aim is to deter those who feel no shame relieving themselves in streets .",
+                "also hopes to combat health risk of public urination ` one spray at a time '"
+            ],
+            0.5098360655737706
+        ],
+        [
+            [
+                "v vigilantes in mumbai have been spraying anyone who urinates in public .",
+                "vehicle , dubbed ` p *** ing tanker ' , features huge water canon and logo of person urinating .",
+                "it is believed to be creation of anonymous ` anti-public urination activist group ' clean indian aims to deter those who feel no shame relieving themselves in streets of india 's most populous city .",
+                "also hopes to combat health risk of public urination - ` one spray at a time '"
+            ],
+            0.4474927777458914
+        ],
+        [
+            [
+                "vigilante group has been spraying anyone who pees in public in mumbai .",
+                "vehicle , dubbed ` p *** ing tanker ' , features huge water canon and logo of urinating .",
+                "also includes rooftop area , from which masked vigilantes can spray members of the public .",
+                "hopes to deter those who feel no shame relieving themselves in the streets .",
+                "but footage has divided opinion , with many saying lack of public toilets is the problem ."
+            ],
+            0.47403674540682417
+        ],
+        [
+            [
+                "` p *** ing tanker ' features huge water canon , logo of a person urinating and sign .",
+                "it is believed to be creation of anonymous ` anti-public urination activist group ' activists hope to deter those who feel no shame relieving themselves in streets .",
+                "also hopes to combat health risk of public urination ` one spray at a time ' but footage has divided opinion , with some saying lack of toilets is the problem ."
+            ],
+            0.38649140211640215
+        ],
+        [
+            [
+                "` p *** ing tanker ' features huge water canon , logo of a person urinating and sign .",
+                "it is believed to be creation of anonymous ` anti-public urination activist group ' activists hope to deter those who feel no shame relieving themselves in streets .",
+                "also hopes to combat health risk of public urination ` one spray at a time '"
+            ],
+            0.41071428571428575
+        ]
+    ],
+    "article_untok": [
+        "for those caught using the streets of mumbai as a public toilet, the pavement is not the only thing to face getting wet.",
+        "vigilantes have been patrolling the indian city with a water tanker - and spraying anyone who urinates in public.",
+        "the vehicle, dubbed the 'p***ing tanker', features a huge water canon, a logo of a person urinating and a large red sign, reading: 'you stop, we stop'.",
+        ".",
+        "scroll down for video.",
+        "action: vigilantes have been patrolling mumbai with a water tanker - and spraying anyone who pees in public.",
+        "mid-flow: a motorcyclist caught using the streets of the indian city as a public toilet is blasted by the activists.",
+        "on patrol: the tanker, dubbed the 'p***ing tanker', features an enormous water canon and a logo of a person urinating.",
+        "it also includes a rooftop area, from which the masked vigilantes can spray members of the public.",
+        "it also includes a large rooftop area, from which the masked vigilantes can blast unsuspecting members of the public with water.",
+        "the bright yellow tanker is believed to be the creation of an anonymous 'anti-public urination activist group', called the clean indian.",
+        "it aims to deter those who feel no shame relieving themselves in the streets of india's most populous city by turning the tables and 'taking a leak' on them.",
+        "it also hopes to combat the health risk of public urination - which the activists claim remains a major problem in the country - 'one spray at a time'.",
+        ".",
+        "soaked: the bright yellow tanker is believed to be the creation of an anonymous 'anti-public urination activist group', called the clean indian.",
+        "above, an indian man caught urinating in the street is blasted by the vigilantes.",
+        "aim: it aims to deter those who feel no shame relieving themselves in the streets of india's most populous city.",
+        "the group has posted a video of the tanker at work on youtube, with the caption: 'you wont' believe what we did to people using the outdoors as a toilet' (sic).",
+        "but the footage has divided opinion - with many users claiming that a lack of public toilets in the state of maharashtra is the underlying problem, not those peeing in the street.",
+        ".",
+        "one user wrote: 'this is not the solution.",
+        "lack of availability of public toilets is the problem that is causing general public to act like that.'",
+        "health risk: it also hopes to combat the health risk of public urination - which the activists claim remains a major problem in the country - 'one spray at a time'.",
+        "above, a man urinates against a wall in mumbai.",
+        "taking aim: the group has posted a video of the tanker on youtube, saying: 'you wont' believe what we did to people using the outdoors as a toilet' (sic).",
+        "above, a masked vigilante sprays water at a member of the public.",
+        "on the lookout: the footage has divided opinion, with many users saying a lack of public toilets is the problem.",
+        "meanwhile, another said: 'that's degrading for those men even if they are doing something wrong.'",
+        "but one woman wrote: 'hilarious!",
+        "the clean indian anti-public urination activists have a novel way of punishing men who p*** in public.'",
+        "and another added: 'this is a good way to teach them (public urinators) to use public toilets!'"
+    ],
+    "abstract_untok": [
+        "vigilantes have been patrolling the streets of mumbai with a water tanker.",
+        "tanker features enormous water canon and the sign: 'you stop, we stop'   also includes rooftop area, from which masked activists can spray public.",
+        "it aims to deter those who feel no shame relieving themselves on streets.",
+        "vehicle is believed to be manned by anonymous group, the clean indian."
+    ],
+    "candidates_untok": [
+        [
+            [
+                "vigilantes have been patrolling indian city with a water tanker.",
+                "vehicle features huge water canon and logo of person urinating.",
+                "also includes rooftop area, from which vigilantes can spray members of public.",
+                "it is believed to be creation of anonymous 'anti-public urination activist group' aim is to deter those who feel no shame relieving themselves in streets.",
+                "but footage has divided opinion, with many saying lack of toilets is problem."
+            ],
+            0.5720259581434799
+        ],
+        [
+            [
+                "the 'p***ing tanker' features huge water canon and logo of person urinating.",
+                "also includes rooftop area, from which masked vigilantes can spray members of the public.",
+                "created by anonymous 'anti-public urination activist group', called the clean indian.",
+                "aim is to deter those who feel no shame relieving themselves in streets of india's most populous city.",
+                "but footage has divided opinion, with many users saying lack of public toilets is the problem."
+            ],
+            0.48922056384742946
+        ],
+        [
+            [
+                "'p***ing tanker' features huge water canon, logo of person urinating and sign.",
+                "it is believed to be creation of anonymous 'anti-public urination activist group' activists hope to deter those who feel no shame relieving themselves in streets of india's most populous city by turning the tables.",
+                "also hopes to combat health risk of public urination 'one spray at a time' but footage has divided opinion, with many users saying lack of public toilets is the problem."
+            ],
+            0.3702847940625602
+        ],
+        [
+            [
+                "vigilantes have been patrolling mumbai with a water tanker.",
+                "vehicle features huge water canon and logo of person urinating.",
+                "also includes rooftop area, from which vigilantes can spray members of public.",
+                "it is believed to be creation of anonymous 'anti-public urination activist group' aim is to deter those who feel no shame relieving themselves in streets.",
+                "but footage has divided opinion, with many saying lack of toilets is problem."
+            ],
+            0.5816506410256409
+        ],
+        [
+            [
+                "the tanker, dubbed the 'p***ing tanker', features a huge water canon.",
+                "it also features a logo of a person urinating and a large red sign.",
+                "it is believed to be the creation of an anonymous 'anti-public urination activist group' the clean indian aims to deter those who feel no shame relieving themselves in the streets of india's most populous city.",
+                "it hopes to combat the health risk of public urination 'one spray at a time'"
+            ],
+            0.4264705882352941
+        ],
+        [
+            [
+                "tanker features huge water canon, logo of person urinating and sign.",
+                "it is believed to be creation of anonymous 'anti-public urination activist group' clean indian aims to deter those who feel no shame relieving themselves in streets.",
+                "also hopes to combat health risk of public urination 'one spray at a time' but footage has divided opinion, with many saying lack of public toilets is the problem."
+            ],
+            0.43170603674540686
+        ],
+        [
+            [
+                "vigilantes have been patrolling indian city with water tanker.",
+                "features huge water canon, logo of person urinating and sign: 'you stop, we stop' aim is to deter those who feel no shame relieving themselves in streets.",
+                "also hopes to combat health risk of public urination 'one spray at a time' but footage has divided opinion, with many saying lack of toilets is problem.",
+                "one user said: 'lack of availability of public toilets is the problem'"
+            ],
+            0.4359045762554534
+        ],
+        [
+            [
+                "vehicle features huge water canon, logo of person urinating and sign.",
+                "also includes rooftop area, from which vigilantes can spray members of public.",
+                "created by anonymous 'anti-public urination activist group', called the clean indian.",
+                "aim is to deter those who feel no shame relieving themselves in streets.",
+                "also hopes to combat health risk of public urination 'one spray at a time' but footage has divided opinion, with some saying lack of toilets is the problem."
+            ],
+            0.47190517998244075
+        ],
+        [
+            [
+                "vigilantes have been patrolling indian city with water tanker.",
+                "features huge water canon, logo of person urinating and sign: 'you stop, we stop' aim is to deter those who feel no shame relieving themselves in streets.",
+                "also hopes to combat health risk of public urination 'one spray at a time' but footage has divided opinion, with many saying lack of toilets is problem."
+            ],
+            0.4677372393558647
+        ],
+        [
+            [
+                "vigilantes have been patrolling indian city with a water tanker in bid to deter public urination.",
+                "vehicle, dubbed 'p***ing tanker', features huge water canon and logo of person urinating.",
+                "also includes rooftop area, from which masked vigilantes can spray members of the public.",
+                "activists claim it is part of an anti-public urination group, called the clean indian.",
+                "but footage has divided opinion, with many saying lack of public toilets is the problem."
+            ],
+            0.45416855118347654
+        ],
+        [
+            [
+                "the tanker, dubbed the 'p***ing tanker', features a huge water canon.",
+                "it also features a logo of a person urinating and a large red sign.",
+                "it is believed to be the creation of an anonymous 'anti-public urination activist group' the clean indian aims to deter those who feel no shame relieving themselves in the streets of india's most populous city."
+            ],
+            0.46782682702860096
+        ],
+        [
+            [
+                "vehicle features huge water canon, logo of person urinating and sign.",
+                "also includes rooftop area, from which vigilantes can spray members of public.",
+                "created by anonymous 'anti-public urination activist group', called the clean indian.",
+                "aim is to deter those who feel no shame relieving themselves in streets.",
+                "also hopes to combat health risk of public urination 'one spray at a time'"
+            ],
+            0.5098360655737706
+        ],
+        [
+            [
+                "v vigilantes in mumbai have been spraying anyone who urinates in public.",
+                "vehicle, dubbed 'p***ing tanker', features huge water canon and logo of person urinating.",
+                "it is believed to be creation of anonymous 'anti-public urination activist group' clean indian aims to deter those who feel no shame relieving themselves in streets of india's most populous city.",
+                "also hopes to combat health risk of public urination - 'one spray at a time'"
+            ],
+            0.4474927777458914
+        ],
+        [
+            [
+                "vigilante group has been spraying anyone who pees in public in mumbai.",
+                "vehicle, dubbed 'p***ing tanker', features huge water canon and logo of urinating.",
+                "also includes rooftop area, from which masked vigilantes can spray members of the public.",
+                "hopes to deter those who feel no shame relieving themselves in the streets.",
+                "but footage has divided opinion, with many saying lack of public toilets is the problem."
+            ],
+            0.47403674540682417
+        ],
+        [
+            [
+                "'p***ing tanker' features huge water canon, logo of a person urinating and sign.",
+                "it is believed to be creation of anonymous 'anti-public urination activist group' activists hope to deter those who feel no shame relieving themselves in streets.",
+                "also hopes to combat health risk of public urination 'one spray at a time' but footage has divided opinion, with some saying lack of toilets is the problem."
+            ],
+            0.38649140211640215
+        ],
+        [
+            [
+                "'p***ing tanker' features huge water canon, logo of a person urinating and sign.",
+                "it is believed to be creation of anonymous 'anti-public urination activist group' activists hope to deter those who feel no shame relieving themselves in streets.",
+                "also hopes to combat health risk of public urination 'one spray at a time'"
+            ],
+            0.41071428571428575
+        ]
+    ]
+}

@@ -1,9 +1,11 @@
 import json
+# pyrefly: ignore [missing-import]
 from compare_mt.rouge.rouge_scorer import RougeScorer
 from multiprocessing import Pool
 import os
 from tqdm import tqdm
 import argparse
+# pyrefly: ignore [missing-import]
 from nltk import sent_tokenize
 
 all_scorer = RougeScorer(['rouge1', 'rouge2', 'rougeLsum'], use_stemmer=True)
@@ -84,7 +86,7 @@ def build_diverse_beam(input):
 
 
 def make_diverse_beam_data(args):
-    with open(os.path.join(args.src_dir, f"{args.split}.source")) as f:
+    with open(os.path.join(args.src_dir, f"{args.split}.source")) as f: #./raw_data/test.source
         num = sum(1 for _ in f)
     data = collect_diverse_beam_data(args)
     with Pool(processes=8) as pool:
@@ -93,6 +95,7 @@ def make_diverse_beam_data(args):
     print("finish")
 
 
+#change raw data after gen_cadidate menjadi fprmat yang sesuai dengan BrioDataset 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Preprocessing Parameter')
     parser.add_argument("--cand_num", type=int, default=16, help="Number of candidates")
@@ -103,3 +106,6 @@ if __name__ == "__main__":
     parser.add_argument("-l", "--lower", action="store_true", help="Lowercase")
     args = parser.parse_args()
     make_diverse_beam_data(args)
+
+#command examples
+#python preprocess.py --src_dir ./raw_data --tgt_dir ./cnndm/diverse --split test --cand_num 16 --dataset cnndm -l
