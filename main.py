@@ -20,7 +20,8 @@ import logging
 from label_smoothing_loss import label_smoothing_loss
 # pyrefly: ignore [missing-import]
 from nltk import sent_tokenize, word_tokenize
-from config import cnndm_setting, xsum_setting
+from config import cnndm_setting, xsum_setting, liputan6_setting
+from indobenchmark import IndoNLGTokenizer
 from tqdm import tqdm
 
 logging.getLogger("transformers.tokenization_utils").setLevel(logging.ERROR)
@@ -63,6 +64,7 @@ def base_setting(args):
     args.eval_interval = getattr(args, "eval_interval", 1000) # evaluation intervals
     args.num_beams = getattr(args, "num_beams", 4) # number of beams for beam search
     args.dataset_folder = getattr(args, "dataset_folder", None) #non default path to dataset directory
+
     
 def evaluation(args):
     # load data
@@ -70,15 +72,19 @@ def evaluation(args):
         cnndm_setting(args)
     elif args.config == "xsum":
         xsum_setting(args)
+    elif args.config == "liputan6":
+        liputan6_setting(args)   
     else:
         base_setting(args)
     if args.is_pegasus:
         tok = PegasusTokenizer.from_pretrained(args.model_type)
+    elif args.config == "liputan6":
+        tok = IndoNLGTokenizer.from_pretrained(args.model_type)
     else:
         tok = BartTokenizer.from_pretrained(args.model_type)
     collate_fn = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=True)
     test_set = BrioDataset(f"./{args.dataset}/{args.datatype}/test", args.model_type, is_test=True, max_len=512,
-     is_sorted=False, max_num=args.max_num, is_untok=True, total_len=args.total_len, is_pegasus=args.is_pegasus)
+                is_sorted=False, max_num=args.max_num, is_untok=True, total_len=args.total_len, is_pegasus=args.is_pegasus)
     batch_size = 4
     dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn)
     # build models
@@ -100,7 +106,8 @@ def evaluation(args):
     print(model_name)
     root_dir = "./result/%s"%model_name
     mkdir(root_dir)
-    rouge_scorer = RougeScorer(['rouge1', 'rouge2', 'rougeLsum'], use_stemmer=True)
+    use_stemmer = False if args.config == "liputan6" else True
+    rouge_scorer = RougeScorer(['rouge1', 'rouge2', 'rougeLsum'], use_stemmer=use_stemmer)
 
     if args.do_reranking:
         # evaluate the model as a scorer
@@ -223,7 +230,8 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
     else:
         _model = model
     cnt = 0
-    rouge_scorer = RougeScorer(['rouge1', 'rouge2', 'rougeLsum'], use_stemmer=True)
+    use_stemmer = False if args.config == "liputan6" else True
+    rouge_scorer = RougeScorer(['rouge1', 'rouge2', 'rougeLsum'], use_stemmer=use_stemmer)
     rouge1, rouge2, rougeLsum = 0, 0, 0
     mle_loss = 0
     if args.smooth > 0:
@@ -344,6 +352,8 @@ def run(rank, args):
         cnndm_setting(args)
     elif args.config == "xsum":
         xsum_setting(args)
+    elif args.config == "liputan6":
+        liputan6_setting(args)
     else:
         base_setting(args)
     # task initialization
@@ -361,6 +371,8 @@ def run(rank, args):
     # build dataloader
     if args.is_pegasus:
         tok = PegasusTokenizer.from_pretrained(args.model_type)
+    elif args.config == "liputan6":
+        tok = IndoNLGTokenizer.from_pretrained(args.model_type)
     else:
         tok = BartTokenizer.from_pretrained(args.model_type)
     collate_fn = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=False)

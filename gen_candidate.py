@@ -1,9 +1,11 @@
 # pyrefly: ignore [missing-import]
-from transformers import BartForConditionalGeneration, BartTokenizer, PegasusTokenizer, PegasusForConditionalGeneration
+from transformers import BartForConditionalGeneration, BartTokenizer, PegasusTokenizer, PegasusForConditionalGeneration, AutoModelForSeq2SeqLM
+from indobenchmark import IndoNLGTokenizer
 import torch
 import sys
 import argparse
 from typing import List
+
 
 def generate_summaries_cnndm(args):
     device = f"cuda:{args.gpuid}"
@@ -103,27 +105,26 @@ def generate_summaries_xsum(args):
             for hypothesis in dec:
                     fout.write(hypothesis + '\n')
                     fout.flush()
-<<<<<<< HEAD
-<<<<<<< Updated upstream
 
-
-=======
 def generate_summaries_liputan6(args):
     """
-    generate candidate summaries for Lipuran6 dataset
+    generate candidate summaries for Liputan6 dataset
     """
-    from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+
     device = f"cuda:{args.gpuid}" if torch.cuda.is_available() else "cpu"
     mname = "indobenchmark/indobart-v2"
     model = AutoModelForSeq2SeqLM.from_pretrained(mname).to(device)
     model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(mname)
-    max_length = 140
-    min_length = 55
+    
+    tokenizer = IndoNLGTokenizer.from_pretrained(mname)
+    
+    max_length = 100
+    min_length = 20
     count = 1
     bsz = 8
+    
     with open(args.src_dir) as source, open(args.tgt_dir, 'w') as fout:
-        sline = source.readline().strip()
+        sline = source.readline().strip().lower()
         slines = [sline]
         for sline in source:
             if count % 100 == 0:
@@ -138,7 +139,7 @@ def generate_summaries_liputan6(args):
                         max_length=max_length + 2,
                         min_length=min_length + 1,
                         no_repeat_ngram_size=3,
-                        length_penalty=2.0,
+                        length_penalty=1.0,
                         early_stopping=True,
                     )
                     dec = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
@@ -147,11 +148,13 @@ def generate_summaries_liputan6(args):
                     fout.write(hypothesis + '\n')
                     fout.flush()
                 slines = []
-            sline = sline.strip()
+                
+            sline = sline.strip().lower()
             if len(sline) == 0:
                 sline = " "
             slines.append(sline)
             count += 1
+            
         if slines:
             with torch.no_grad():
                 dct = tokenizer.batch_encode_plus(slines, max_length=1024, return_tensors="pt", padding=True, truncation=True)
@@ -162,7 +165,7 @@ def generate_summaries_liputan6(args):
                     max_length=max_length + 2,
                     min_length=min_length + 1,
                     no_repeat_ngram_size=3,
-                    length_penalty=2.0,
+                    length_penalty=1.0,
                     early_stopping=True,
                 )
                 dec = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
@@ -170,16 +173,10 @@ def generate_summaries_liputan6(args):
                 hypothesis = hypothesis.replace("\n", " ")
                 fout.write(hypothesis + '\n')
                 fout.flush()
+                
     return True
     
->>>>>>> Stashed changes
-=======
-def generate_summaries_liputan6(args):
-    
-    
-    return True
-    
->>>>>>> b63a0916524a7f69eb7823b6437423bbcf2082e6
+
 if __name__ ==  "__main__":
     parser = argparse.ArgumentParser(description='Parameters')
     parser.add_argument("--gpuid", type=int, default=0, help="gpu id")
@@ -193,3 +190,6 @@ if __name__ ==  "__main__":
         generate_summaries_xsum(args)
     elif args.dataset == "liputan6":
         generate_summaries_liputan6(args)
+        
+# command examples -  make sure test.source and test.out is already exsist
+#! conda run -n env python gen_candidate.py --gpuid 0 --src_dir ./examples/raw_data/test.source --tgt_dir ./test/diverse/test.out --dataset cnndm
