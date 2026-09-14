@@ -8,6 +8,7 @@ from transformers import (
 )
 import os
 import shutil
+import glob
 
 from indobenchmark import IndoNLGTokenizer
 _original_pad = IndoNLGTokenizer.pad
@@ -36,7 +37,7 @@ class Liputan6Dataset(Dataset):
         with open(source_file, 'r', encoding='utf-8') as fs, open(target_file, 'r', encoding='utf-8') as ft:
             self.sources = [line.strip().lower() for line in fs.readlines()]
             self.targets = [line.strip().lower() for line in ft.readlines()]
-        
+
         self.tokenizer = tokenizer
         self.max_src_len = max_src_len
         self.max_tgt_len = max_tgt_len
@@ -44,16 +45,13 @@ class Liputan6Dataset(Dataset):
     def __len__(self):
         return len(self.sources)
 
-
     def __getitem__(self, idx):
         src = self.sources[idx]
         tgt = self.targets[idx]
 
-        # reserve 3 slots (bos, eos, lang) on the encoder side
         src_ids = self.tokenizer.encode(src, max_length=self.max_src_len - 3, truncation=True, add_special_tokens=False)
         src_ids = [self.tokenizer.bos_token_id] + src_ids + [self.tokenizer.eos_token_id, LANG_ID]
 
-        # reserve 3 slots (bos, eos, lang) on the label side
         tgt_ids = self.tokenizer.encode(tgt, max_length=self.max_tgt_len - 3, truncation=True, add_special_tokens=False)
         label_ids = [self.tokenizer.bos_token_id] + tgt_ids + [self.tokenizer.eos_token_id, LANG_ID]
 
@@ -73,39 +71,46 @@ class Liputan6Dataset(Dataset):
             "labels": torch.tensor(labels, dtype=torch.long)
         }
 
+
 def main():
     model_name = "indobenchmark/indobart-v2"
-    output_dir = "./indobart-liputan6-finetuned"
-    
+    output_dir = "/content/drive/MyDrive/indobart-liputan6-finetuned"
+
+    if not os.path.isdir("/content/drive/MyDrive"):
+        raise RuntimeError(
+            "Google Drive isn't mounted. Run `from google.colab import drive; drive.mount('/content/drive')` "
+            "in a notebook cell before running this script."
+        )
+
     tokenizer = IndoNLGTokenizer.from_pretrained(model_name)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-    # model.config.decoder_start_token_id = LANG_ID
-    
+
     train_dataset = Liputan6Dataset(
-        "liputan6_converted/canonical/train.source", 
-        "liputan6_converted/canonical/train.target", 
+        "liputan6_converted/canonical/train.source",
+        "liputan6_converted/canonical/train.target",
         tokenizer
     )
     val_dataset = Liputan6Dataset(
-        "liputan6_converted/canonical/val.source", 
-        "liputan6_converted/canonical/val.target", 
+        "liputan6_converted/canonical/val.source",
+        "liputan6_converted/canonical/val.target",
         tokenizer
     )
-    
+
     training_args = Seq2SeqTrainingArguments(
         output_dir=output_dir,
         eval_strategy="epoch",
-        learning_rate=5e-5,
-        per_device_train_batch_size=8,
-        per_device_eval_batch_size=8,
-        weight_decay=0.01,
+        save_strategy="epoch",
         save_total_limit=2,
-        num_train_epochs=5,
+        learning_rate=5e-5,
+        per_device_train_batch_size=16,
+        per_device_eval_batch_size=16,
+        weight_decay=0.01,
+        num_train_epochs=4,
         predict_with_generate=True,
         fp16=torch.cuda.is_available(),
         logging_steps=100,
     )
-    
+
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
@@ -114,11 +119,19 @@ def main():
         processing_class=tokenizer,
         data_collator=default_data_collator,
     )
-    
-    trainer.train()
-    trainer.save_model(output_dir)
-    tokenizer.save_pretrained(output_dir)
-    print(f"Fine-tuned model saved to {output_dir}")
+
+    existing_checkpoints = glob.glob(os.path.join(output_dir, "checkpoint-*"))
+    resume = True if existing_checkpoints else None
+
+    try:
+        trainer.train(resume_from_checkpoint=resume)
+    except KeyboardInterrupt:
+        print("Interrupted — saving current state...")
+    finally:
+        trainer.save_model(output_dir)
+        tokenizer.save_pretrained(output_dir)
+        print(f"Model saved to {output_dir}")
+
 
 if __name__ == "__main__":
     main()
