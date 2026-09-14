@@ -7,11 +7,27 @@ from transformers import (
     default_data_collator
 )
 from indobenchmark import IndoNLGTokenizer
+import os
+import shutil
+
+#patching legacy transformer package
 _original_pad = IndoNLGTokenizer.pad
 def _patched_pad(self, *args, **kwargs):
     kwargs.pop("padding_side", None)
     return _original_pad(self, *args, **kwargs)
 IndoNLGTokenizer.pad = _patched_pad
+
+def _patched_save_vocabulary(self, save_directory, filename_prefix=None):
+    if not os.path.isdir(save_directory):
+        raise ValueError(f"Vocabulary path ({save_directory}) should be a directory")
+    out_vocab_file = os.path.join(
+        save_directory,
+        (filename_prefix + "-" if filename_prefix else "") + "sentencepiece.bpe.model"
+    )
+    if os.path.abspath(self.vocab_file) != os.path.abspath(out_vocab_file):
+        shutil.copyfile(self.vocab_file, out_vocab_file)
+    return (out_vocab_file,)
+IndoNLGTokenizer.save_vocabulary = _patched_save_vocabulary
 
 class Liputan6Dataset(Dataset):
     def __init__(self, source_file, target_file, tokenizer, max_src_len=1024, max_tgt_len=100):
