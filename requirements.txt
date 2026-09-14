@@ -11,3 +11,5 @@ indobenchmark-toolkit==0.1.7
 accelerate==1.0.1
 datasets==3.1.0
 hf-xet==1.6.0
+evaluate==0.4.6
+rouge-score==0.1.2

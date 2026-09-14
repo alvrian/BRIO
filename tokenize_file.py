@@ -25,25 +25,21 @@ def tokenize_file(input_path, output_path):
 def main():
     parser = argparse.ArgumentParser(description="Tokenize Liputan6 evaluation files using NLTK")
     parser.add_argument("--dir", type=str, required=True, help="Directory containing test.source, test.target, and test.out")
+    parser.add_argument("--splits", type=str, nargs="+", default=["train", "val", "test"], help="Which splits to tokenize")
     args = parser.parse_args()
 
     # Download required NLTK tokenizer resources silently
     nltk.download('punkt', quiet=True)
     nltk.download('punkt_tab', quiet=True)
 
-    file_pairs = [
-        ("test.source", "test.source.tokenize"),
-        ("test.target", "test.target.tokenize"),
-        ("test.out", "test.out.tokenize")
-    ]
-
-    for src_name, tgt_name in file_pairs:
-        src_path = os.path.join(args.dir, src_name)
-        tgt_path = os.path.join(args.dir, tgt_name)
-        tokenize_file(src_path, tgt_path)
+    for split in args.splits:
+        for suffix in ["source", "target", "out"]:
+            src_path = os.path.join(args.dir, f"{split}.{suffix}")
+            tgt_path = os.path.join(args.dir, f"{split}.{suffix}.tokenize")
+            tokenize_file(src_path, tgt_path)
 
 if __name__ == "__main__":
     main()
     
 #command examples
-# python tokenize_eval_files.py --dir ./liputan6/diverse/
+# python tokenize_files.py --dir ./liputan6/diverse/ --splits train val test

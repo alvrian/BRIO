@@ -18,12 +18,9 @@ compare-mt
 local_note.txt
 liputan6_data
 # liputan6_converted
-train.source
-train.target
-test.source
-test.target
-val.source
-val.target
+*.source
+*.target
+*.out
 liputan6_brio_dataset
 cnndm_subset_20k
 backup

@@ -77,9 +77,9 @@ def evaluation(args):
     else:
         base_setting(args)
     if args.is_pegasus:
-        tok = PegasusTokenizer.from_pretrained(args.model_type)
+        tok = PegasusTokenizer.from_pretrained(args.model_type) 
     elif args.config == "liputan6":
-        tok = IndoNLGTokenizer.from_pretrained(args.model_type)
+        tok = IndoNLGTokenizer.from_pretrained(args.model_type) #indobenchmark/indobart-v2
     else:
         tok = BartTokenizer.from_pretrained(args.model_type)
     collate_fn = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=True)
@@ -385,8 +385,19 @@ def run(rank, args):
         train_path = f"./{args.dataset}/{args.datatype}/train"
         val_path = f"./{args.dataset}/{args.datatype}/val"
         
-    train_set = BrioDataset(train_path, args.model_type, max_len=args.max_len, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus)
-    val_set = BrioDataset(val_path, args.model_type, is_test=True, max_len=512, is_sorted=False, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus)
+    #train_set = BrioDataset(train_path, args.model_type, max_len=args.max_len, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus)
+    #val_set = BrioDataset(val_path, args.model_type, is_test=True, max_len=512, is_sorted=False, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus)
+    train_set = BrioDataset(
+        train_path, args.model_type,
+        max_len=args.max_len, max_num=args.max_num, total_len=args.total_len,
+        is_pegasus=args.is_pegasus, is_indonlg=(args.dataset == "liputan6")
+    )
+    val_set = BrioDataset(
+        val_path, args.model_type, is_test=True, max_len=512, is_sorted=False,
+        max_num=args.max_num, total_len=args.total_len,
+        is_pegasus=args.is_pegasus, is_indonlg=(args.dataset == "liputan6")
+    )
+    
     print(f'done extracting data for {args.dataset} for BRIO')
     #is_mp -> multi gpu
     if is_mp:
@@ -542,7 +553,6 @@ def run(rank, args):
                     else:
                         recorder.save(model, "model_cur.bin")
                     recorder.save(s_optimizer, "optimizer.bin")
-
 
 def main(args):
     # set env
