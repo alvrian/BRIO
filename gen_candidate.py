@@ -193,3 +193,4 @@ if __name__ ==  "__main__":
         
 # command examples -  make sure test.source and test.out is already exsist
 #! conda run -n env python gen_candidate.py --gpuid 0 --src_dir ./examples/raw_data/test.source --tgt_dir ./test/diverse/test.out --dataset cnndm
+#! conda run -n env python gen_candidate.py --gpuid 0 --src_dir ./examples/raw_data/test.source --tgt_dir ./test/diverse/test.out --dataset cnndm

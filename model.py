@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 from modeling_bart import BartScorer
 from modeling_pegasus import PegasusScorer
-
+from transformers import MBartForConditionalGeneration
 
 def RankingLoss(score, summary_score=None, margin=0, gold_margin=0, gold_weight=1, no_gold=False, no_cand=False):
     ones = torch.ones_like(score)
@@ -35,39 +35,71 @@ def RankingLoss(score, summary_score=None, margin=0, gold_margin=0, gold_weight=
     return TotalLoss
 
 
-
 class BRIO(nn.Module):
     
     def __init__(self, mname, pad_token_id, is_pegasus=False):
         super(BRIO, self).__init__()
+        self.is_indobart = "indobart" in mname.lower()
+        
         if is_pegasus:
             self.model = PegasusScorer.from_pretrained(mname, cache_dir="./local_cache")
+        elif self.is_indobart:
+            self.model = MBartForConditionalGeneration.from_pretrained(mname)
         else:
             self.model = BartScorer.from_pretrained(mname, cache_dir="./local_cache")
+            
         self.pad_token_id = pad_token_id
+        self._is_scoring_mode = False
+
 
     def forward(self, text_id, candidate_id, normalize=True, score_mode="base", length_penalty=1, require_gold=True, adding=0):
         
         batch_size = text_id.size(0)
+        cand_num = candidate_id.size(1)
         
         input_mask = text_id != self.pad_token_id
         cand_mask = candidate_id != self.pad_token_id
         cand_mask[:, :, 0] = 1
-        output = self.model(
-            input_ids=text_id, 
-            attention_mask=input_mask,
-            decoder_input_ids=candidate_id, 
-            decoder_attention_mask=cand_mask,
-            output_hidden_states=True
+        
+        if self.is_indobart and self._is_scoring_mode:
+            # IndoBART uses a standard HuggingFace model, so we must manually interleave 
+            # the encoder inputs to match the multiple generated candidate summaries
+            text_id_expanded = torch.repeat_interleave(text_id, cand_num, dim=0)
+            input_mask_expanded = torch.repeat_interleave(input_mask, cand_num, dim=0)
+            
+            # Flatten candidate dimensions for the decoder from [bz, cand_num, seq_len] to [bz * cand_num, seq_len]
+            candidate_id_flat = candidate_id.view(-1, candidate_id.size(-1))
+            cand_mask_flat = cand_mask.view(-1, cand_mask.size(-1))
+            
+            output = self.model(
+                input_ids=text_id_expanded, 
+                attention_mask=input_mask_expanded,
+                decoder_input_ids=candidate_id_flat, 
+                decoder_attention_mask=cand_mask_flat,
+                output_hidden_states=True
             )
+            # MBart returns a standard Seq2SeqLMOutput object, extract logits
+            output = output.logits 
+        else:
+            # Custom Pegasus/BartScorer handles interleaving internally
+            output = self.model(
+                input_ids=text_id, 
+                attention_mask=input_mask,
+                decoder_input_ids=candidate_id, 
+                decoder_attention_mask=cand_mask,
+                output_hidden_states=True
+            )
+            output = output[0]  # [bz * cand_num, seq_len, word_dim]
 
-        output = output[0]  # [bz x cand_num, seq_len, word_dim]
-        output = output.view(batch_size, -1, output.size(1), output.size(2)) # [bz, cand_num, seq_len, word_dim]
+        # Reshape the flattened output back to [bz, cand_num, seq_len, word_dim]
+        output = output.view(batch_size, -1, output.size(1), output.size(2)) 
+        
         probs = output[:, 0]
         output = output[:, :, :-1]  # truncate last token
         candidate_id = candidate_id[:, :, 1:]  # shift right
         cand_mask = candidate_id != self.pad_token_id
         candidate_id = candidate_id.unsqueeze(-1)
+        
         if normalize:
             if score_mode == "log":
                 _output = F.log_softmax(output, dim=3)
@@ -76,8 +108,10 @@ class BRIO(nn.Module):
             scores = torch.gather(_output, 3, candidate_id).squeeze(-1)  # [bz, cand_num, seq_len]
         else:
             scores = torch.gather(output, 3, candidate_id).squeeze(-1)  # [bz, cand_num, seq_len]
+            
         cand_mask = cand_mask.float()
         scores = torch.mul(scores, cand_mask).sum(-1) / ((cand_mask.sum(-1) + adding) ** length_penalty) # [bz, cand_num]
+        
         if require_gold:
             output = {'score': scores[:, 1:], "summary_score": scores[:, 0], "probs": probs}
         else:
@@ -85,10 +119,14 @@ class BRIO(nn.Module):
         return output
 
     def scoring_mode(self):
-        self.model.model.scoring_mode()
+        self._is_scoring_mode = True
+        if not self.is_indobart:
+            self.model.model.scoring_mode()
 
     def generation_mode(self):
-        self.model.model.generation_mode()
+        self._is_scoring_mode = False
+        if not self.is_indobart:
+            self.model.model.generation_mode()
 
     def generate(
         self,
@@ -126,8 +164,8 @@ class BRIO(nn.Module):
         synced_gpus: Optional[bool] = None,
         **model_kwargs,
     ):
-        #please fix later 
-        return self.model.generate(input_ids=input_ids,
+        return self.model.generate(
+            input_ids=input_ids,
             bos_token_id=self.model.config.bos_token_id,
             decoder_start_token_id=self.model.config.decoder_start_token_id,                       
             max_length=max_length,
@@ -140,7 +178,6 @@ class BRIO(nn.Module):
             top_p=top_p,
             repetition_penalty=repetition_penalty,
             bad_words_ids=bad_words_ids,
-            #bos_token_id=bos_token_id, #this
             pad_token_id=pad_token_id,
             eos_token_id=eos_token_id,
             length_penalty=length_penalty,
@@ -148,7 +185,6 @@ class BRIO(nn.Module):
             encoder_no_repeat_ngram_size=encoder_no_repeat_ngram_size,
             num_return_sequences=num_return_sequences,
             max_time=max_time,
-            #decoder_start_token_id=decoder_start_token_id,#this
             use_cache=use_cache,
             num_beam_groups=num_beam_groups,
             diversity_penalty=diversity_penalty,
@@ -161,4 +197,5 @@ class BRIO(nn.Module):
             forced_eos_token_id=forced_eos_token_id,
             remove_invalid_values=remove_invalid_values,
             synced_gpus=synced_gpus,
-            **model_kwargs)
+            **model_kwargs
+        )
