@@ -107,6 +107,7 @@ def generate_summaries_xsum(args):
                     fout.write(hypothesis + '\n')
                     fout.flush()
 
+
 _original_pad = IndoNLGTokenizer.pad
 def _patched_pad(self, *args, **kwargs):
     kwargs.pop("padding_side", None)
@@ -125,6 +126,8 @@ def _patched_save_vocabulary(self, save_directory, filename_prefix=None):
     return (out_vocab_file,)
 IndoNLGTokenizer.save_vocabulary = _patched_save_vocabulary
 
+LANG_ID = 40002  # [indonesian]
+
 def _build_batch(slines, tokenizer, max_src_len=1024):
     """Builds <s> X </s> [indonesian] formatted, padded input_ids + attention_mask for a batch."""
     pad_id = tokenizer.pad_token_id
@@ -139,17 +142,24 @@ def _build_batch(slines, tokenizer, max_src_len=1024):
     attention_mask = torch.tensor([[1] * len(ids) + [0] * (max_len - len(ids)) for ids in batch_ids])
     return input_ids, attention_mask
 
-LANG_ID = 40002  # [indonesian]
 
 def generate_summaries_liputan6(args):
     """
     generate candidate summaries for Liputan6 dataset
     """
     device = f"cuda:{args.gpuid}" if torch.cuda.is_available() else "cpu"
-    mname = "./indobart-liputan6-finetuned"  # fine-tuned checkpoint directory
+    mname = "/content/drive/MyDrive/indobart-liputan6-finetuned"  # checkpoint now lives on Drive
+
+    if not os.path.isdir("/content/drive/MyDrive"):
+        raise RuntimeError(
+            "Google Drive isn't mounted. Run `from google.colab import drive; drive.mount('/content/drive')` "
+            "in a notebook cell before running this script."
+        )
+    if not os.path.isdir(mname):
+        raise RuntimeError(f"Checkpoint directory not found: {mname}")
+
     model = AutoModelForSeq2SeqLM.from_pretrained(mname).to(device)
     model.config.decoder_start_token_id = LANG_ID
-    # model.save_pretrained(mname)
     model.eval()
 
     tokenizer = IndoNLGTokenizer.from_pretrained(mname)
@@ -211,31 +221,31 @@ def generate_summaries_liputan6(args):
                 fout.flush()
 
     return True
-    
 
-if __name__ ==  "__main__":
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Parameters')
     parser.add_argument("--gpuid", type=int, default=0, help="gpu id")
     parser.add_argument("--src_dir", type=str, help="source file")
     parser.add_argument("--tgt_dir", type=str, help="target file")
     parser.add_argument("--dataset", type=str, default="cnndm", help="dataset")
     args = parser.parse_args()
-    
-    if(args.src_dir is None or args.tgt_dir is None):
+
+    if args.src_dir is None or args.tgt_dir is None:
         print("Please provide --src_dir and --tgt_dir")
         sys.exit(1)
     if not os.path.exists(args.src_dir):
         print(f"Error: Source file '{args.src_dir}' does not exist.")
         sys.exit(1)
-        
+
     src_name = os.path.basename(args.src_dir).split('.')[0]
     tgt_name = os.path.basename(args.tgt_dir).split('.')[0]
     if src_name != tgt_name:
         print(f"Error: Source file '{args.src_dir}' and target file '{args.tgt_dir}' must have the same split prefix (e.g. both 'train').")
         sys.exit(1)
-        
+
     os.makedirs(os.path.dirname(args.tgt_dir), exist_ok=True)
-    
+
     if args.dataset == "cnndm":
         generate_summaries_cnndm(args)
     elif args.dataset == "xsum":
@@ -244,6 +254,5 @@ if __name__ ==  "__main__":
         generate_summaries_liputan6(args)
         
 # command examples -  make sure test.source and test.out is already exsist
-#! conda run -n env python gen_candidate.py --gpuid 0 --src_dir ./examples/raw_data/test.source --tgt_dir ./test/diverse/test.out --dataset cnndm
-#! conda run -n env python gen_candidate.py --gpuid 0 --src_dir ./examples/raw_data/test.source --tgt_dir ./test/diverse/test.out --dataset cnndm
-#! conda run -n env python gen_candidate.py --gpuid 0 --src_dir ./liputan6_converted/canonical/train.source --tgt_dir ./test/diverse/train.out --dataset liputan6
+# python gen_candidate.py --src_dir ./liputan6_converted/canonical/train.source \
+#   --tgt_dir /content/drive/MyDrive/liputan6_candidates/train.out --dataset liputan6
