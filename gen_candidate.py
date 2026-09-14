@@ -148,6 +148,8 @@ def generate_summaries_liputan6(args):
     device = f"cuda:{args.gpuid}" if torch.cuda.is_available() else "cpu"
     mname = "./indobart-liputan6-finetuned"  # fine-tuned checkpoint directory
     model = AutoModelForSeq2SeqLM.from_pretrained(mname).to(device)
+    model.config.decoder_start_token_id = LANG_ID
+    # model.save_pretrained(mname)
     model.eval()
 
     tokenizer = IndoNLGTokenizer.from_pretrained(mname)
