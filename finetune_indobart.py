@@ -4,9 +4,14 @@ from transformers import (
     AutoModelForSeq2SeqLM,
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
-    DataCollatorForSeq2Seq
+    default_data_collator
 )
 from indobenchmark import IndoNLGTokenizer
+_original_pad = IndoNLGTokenizer.pad
+def _patched_pad(self, *args, **kwargs):
+    kwargs.pop("padding_side", None)
+    return _original_pad(self, *args, **kwargs)
+IndoNLGTokenizer.pad = _patched_pad
 
 class Liputan6Dataset(Dataset):
     def __init__(self, source_file, target_file, tokenizer, max_src_len=1024, max_tgt_len=100):
@@ -25,19 +30,31 @@ class Liputan6Dataset(Dataset):
         src = self.sources[idx]
         tgt = self.targets[idx]
         
-        # Tokenize source and target
-        model_inputs = self.tokenizer(src, max_length=self.max_src_len, padding="max_length", truncation=True)
-        labels = self.tokenizer(tgt, max_length=self.max_tgt_len, padding="max_length", truncation=True)
+        # Use encode directly to bypass the tokenizer wrapper's internal padding call
+        src_ids = self.tokenizer.encode(src, max_length=self.max_src_len, truncation=True)
+        tgt_ids = self.tokenizer.encode(tgt, max_length=self.max_tgt_len, truncation=True)
         
-        # Assign labels to the model inputs
-        model_inputs["labels"] = labels["input_ids"]
+        pad_id = self.tokenizer.pad_token_id
         
-        # Replace padding token ids in labels with -100 to ignore them in loss computation
-        model_inputs["labels"] = [
-            (l if l != self.tokenizer.pad_token_id else -100) for l in model_inputs["labels"]
+        # 1. Manually pad the source sequence and build the attention mask
+        src_pad_len = self.max_src_len - len(src_ids)
+        input_ids = src_ids + [pad_id] * src_pad_len
+        attention_mask = [1] * len(src_ids) + [0] * src_pad_len
+        
+        # 2. Manually pad the target sequence
+        tgt_pad_len = self.max_tgt_len - len(tgt_ids)
+        label_ids = tgt_ids + [pad_id] * tgt_pad_len
+        
+        # 3. Replace padding token IDs with -100 so they are ignored in the loss function
+        labels = [
+            (l if l != pad_id else -100) for l in label_ids
         ]
         
-        return {key: torch.tensor(val) for key, val in model_inputs.items()}
+        return {
+            "input_ids": torch.tensor(input_ids, dtype=torch.long),
+            "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
+            "labels": torch.tensor(labels, dtype=torch.long)
+        }
 
 def main():
     model_name = "indobenchmark/indobart-v2"
@@ -46,7 +63,6 @@ def main():
     tokenizer = IndoNLGTokenizer.from_pretrained(model_name)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
     
-    # Update paths to match your converted dataset directory
     train_dataset = Liputan6Dataset(
         "liputan6_converted/canonical/train.source", 
         "liputan6_converted/canonical/train.target", 
@@ -58,11 +74,9 @@ def main():
         tokenizer
     )
     
-    data_collator = DataCollatorForSeq2Seq(tokenizer, model=model)
-    
     training_args = Seq2SeqTrainingArguments(
         output_dir=output_dir,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         learning_rate=5e-5,
         per_device_train_batch_size=8,
         per_device_eval_batch_size=8,
@@ -79,8 +93,8 @@ def main():
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
-        tokenizer=tokenizer,
-        data_collator=data_collator,
+        processing_class=tokenizer,
+        data_collator=default_data_collator,
     )
     
     trainer.train()
