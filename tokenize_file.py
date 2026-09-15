@@ -7,7 +7,9 @@ def tokenize_file(input_path, output_path):
     if not os.path.exists(input_path):
         print(f"Skipping: {input_path} (File not found)")
         return
-    
+    if not os.path.exists(os.path.dirname(output_path)):
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
     with open(input_path, 'r', encoding='utf-8') as fin, \
          open(output_path, 'w', encoding='utf-8') as fout:
         for line in fin:
@@ -15,8 +17,7 @@ def tokenize_file(input_path, output_path):
             if not line:
                 fout.write("\n")
                 continue
-            
-            # Lowercase and separate punctuation with spaces
+
             tokens = word_tokenize(line.lower())
             fout.write(" ".join(tokens) + "\n")
             

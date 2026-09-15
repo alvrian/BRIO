@@ -15,6 +15,7 @@ def collect_diverse_beam_data(args):
     split = args.split
     src_dir = args.src_dir
     tgt_dir = os.path.join(args.tgt_dir, split)
+    os.makedirs(tgt_dir, exist_ok=True)
     cands = []
     cands_untok = []
     cnt = 0
@@ -30,20 +31,16 @@ def collect_diverse_beam_data(args):
                     y = y.lower()
                 cands_untok.append(y)
                 if len(cands) == args.cand_num:
-                    src_line = src.readline()
-                    src_line = src_line.strip()
+                    src_line = src.readline().strip()
                     if args.lower:
                         src_line = src_line.lower()
-                    tgt_line = tgt.readline()
-                    tgt_line = tgt_line.strip()
+                    tgt_line = tgt.readline().strip()
                     if args.lower:
                         tgt_line = tgt_line.lower()
-                    src_line_untok = src_untok.readline()
-                    src_line_untok = src_line_untok.strip()
+                    src_line_untok = src_untok.readline().strip()
                     if args.lower:
                         src_line_untok = src_line_untok.lower()
-                    tgt_line_untok = tgt_untok.readline()
-                    tgt_line_untok = tgt_line_untok.strip()
+                    tgt_line_untok = tgt_untok.readline().strip()
                     if args.lower:
                         tgt_line_untok = tgt_line_untok.lower()
                     yield (src_line, tgt_line, cands, src_line_untok, tgt_line_untok, cands_untok, os.path.join(tgt_dir, f"{cnt}.json"), args.dataset)
@@ -58,12 +55,12 @@ def build_diverse_beam(input):
     abstract = sent_tokenize(tgt_line)
     _abstract = "\n".join(abstract)
     article = sent_tokenize(src_line)
-    
+
     if dataset == "xsum":
         def compute_rouge(hyp):
             score = all_scorer.score(_abstract, "\n".join(hyp))
             return 2 * score["rouge1"].fmeasure * score["rouge2"].fmeasure / (score["rouge1"].fmeasure + score["rouge2"].fmeasure)
-    else:
+    else:  # covers cnndm and liputan6
         def compute_rouge(hyp):
             score = all_scorer.score(_abstract, "\n".join(hyp))
             return (score["rouge1"].fmeasure + score["rouge2"].fmeasure + score["rougeLsum"].fmeasure) / 3
@@ -74,19 +71,19 @@ def build_diverse_beam(input):
     article_untok = sent_tokenize(src_line_untok)
     candidates_untok = [(cands_untok[i], candidates[i][1]) for i in range(len(candidates))]
     output = {
-        "article": article, 
+        "article": article,
         "abstract": abstract,
         "candidates": candidates,
-        "article_untok": article_untok, 
+        "article_untok": article_untok,
         "abstract_untok": abstract_untok,
         "candidates_untok": candidates_untok,
-        }
+    }
     with open(tgt_dir, "w") as f:
         json.dump(output, f)
 
 
 def make_diverse_beam_data(args):
-    with open(os.path.join(args.src_dir, f"{args.split}.source")) as f: #./raw_data/test.source
+    with open(os.path.join(args.src_dir, f"{args.split}.source")) as f:
         num = sum(1 for _ in f)
     data = collect_diverse_beam_data(args)
     with Pool(processes=8) as pool:
@@ -95,7 +92,6 @@ def make_diverse_beam_data(args):
     print("finish")
 
 
-#change raw data after gen_cadidate menjadi fprmat yang sesuai dengan BrioDataset 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Preprocessing Parameter')
     parser.add_argument("--cand_num", type=int, default=16, help="Number of candidates")
@@ -107,5 +103,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     make_diverse_beam_data(args)
 
-#command examples
-#python preprocess.py --src_dir ./raw_data --tgt_dir ./cnndm/diverse --split test --cand_num 16 --dataset cnndm -l
+# command examples
+# python preprocess.py --src_dir ./liputan6_converted/xtreme --tgt_dir ./liputan6_preprocessed --split train --cand_num 16 --dataset liputan6 -l
+# python preprocess.py --src_dir ./liputan6_converted/xtreme --tgt_dir ./liputan6_preprocessed --split val   --cand_num 16 --dataset liputan6 -l
+# python preprocess.py --src_dir ./liputan6_converted/xtreme --tgt_dir ./liputan6_preprocessed --split test  --cand_num 16 --dataset liputan6 -l

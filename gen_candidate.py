@@ -135,7 +135,7 @@ IndoNLGTokenizer.decode = _patched_decode
 LANG_ID = 40002  # [indonesian]
 NUM_CANDIDATES = 16
 LOCAL_TMP_DIR = "/content/_gen_candidate_tmp"  # fast local disk, no network dependency
-SYNC_EVERY_N_BATCHES = 10  # copy local file -> Drive every N batches (~40 articles at bsz=8)
+SYNC_EVERY_N_BATCHES = 100  # copy local file -> Drive every N batches (~40 articles at bsz=8)
 
 
 def _build_batch(slines, tokenizer, max_src_len=1024):
