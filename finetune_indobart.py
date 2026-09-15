@@ -105,7 +105,7 @@ def main():
         per_device_train_batch_size=32,
         per_device_eval_batch_size=32,
         weight_decay=0.01,
-        num_train_epochs=5,
+        num_train_epochs=6,
         predict_with_generate=True,
         fp16=torch.cuda.is_available(),
         logging_steps=100,

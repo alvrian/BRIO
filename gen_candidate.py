@@ -126,6 +126,12 @@ def _patched_save_vocabulary(self, save_directory, filename_prefix=None):
     return (out_vocab_file,)
 IndoNLGTokenizer.save_vocabulary = _patched_save_vocabulary
 
+_original_decode = IndoNLGTokenizer.decode
+def _patched_decode(self, *args, **kwargs):
+    kwargs.pop("clean_up_tokenization_spaces", None)
+    return _original_decode(self, *args, **kwargs)
+IndoNLGTokenizer.decode = _patched_decode
+
 LANG_ID = 40002  # [indonesian]
 
 def _build_batch(slines, tokenizer, max_src_len=1024):
@@ -207,11 +213,14 @@ def generate_summaries_liputan6(args):
                 summaries = model.generate(
                     input_ids=input_ids.to(device),
                     attention_mask=attention_mask.to(device),
-                    num_return_sequences=16, num_beam_groups=16, diversity_penalty=1.0, num_beams=16,
-                    max_length=max_length + 2,
-                    min_length=min_length + 1,
+                    num_return_sequences=16, 
+                    num_beam_groups=16, 
+                    diversity_penalty=1.0, 
+                    num_beams=16,
+                    max_length=max_length + 2, #102
+                    min_length=min_length + 1, #21
                     no_repeat_ngram_size=3,
-                    length_penalty=1.0,
+                    length_penalty=0.5, #ada gibberish from 1.0 -> 0.5
                     early_stopping=True,
                 )
                 dec = [tokenizer.decode(g.tolist(), skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
