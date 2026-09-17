@@ -473,8 +473,29 @@ def run(rank, args):
     print(f'start building model')
     model_path = args.pretrained if args.pretrained is not None else args.model_type
     model = BRIO(model_path, tok.pad_token_id, is_pegasus=args.is_pegasus)
+
+    # --- IndoBART size-mismatch guards ---
+    # The tokenizer (IndoNLGTokenizer) may have more special tokens than the
+    # model's embedding table was originally sized for, causing CUDA
+    # out-of-bounds (srcIndex < srcSelectDimSize) on token-ID lookup.
+    # resize_token_embeddings() grows the table safely if needed.
     if args.dataset == "liputan6":
-        model.model.config.decoder_start_token_id = 40002  
+        tok_vocab_size = len(tok)
+        model_vocab_size = model.model.config.vocab_size
+        if tok_vocab_size != model_vocab_size:
+            print(f"[size-mismatch] tokenizer vocab={tok_vocab_size}, "
+                  f"model vocab={model_vocab_size} → resizing embeddings")
+            model.model.resize_token_embeddings(tok_vocab_size)
+
+        # Cap total_len to the model's actual max_position_embeddings.
+        # IndoBART-v2 may only support 512 positions; sending 1024-token
+        # sequences causes position-embedding index overflows during beam search.
+        max_pos = model.model.config.max_position_embeddings
+        if args.total_len > max_pos:
+            print(f"[size-mismatch] total_len={args.total_len} > "
+                  f"max_position_embeddings={max_pos} → capping to {max_pos}")
+            args.total_len = max_pos
+
     if len(args.model_pt) > 0:
         map_loc = f'cuda:{gpuid}' if args.cuda else 'cpu'
         model.load_state_dict(torch.load(os.path.join("./cache", args.model_pt), map_location=map_loc))

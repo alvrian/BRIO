@@ -168,15 +168,15 @@ class BRIO(nn.Module):
         **model_kwargs,
     ):
         if self.is_indobart:
-            # For MBartForConditionalGeneration (IndoBART-v2):
-            # - Do NOT manually override bos_token_id / decoder_start_token_id from config;
-            #   MBart handles those internally and overriding them causes CUDA index-out-of-bounds
-            #   errors during beam search (position IDs exceed embedding table size).
-            # - Set forced_bos_token_id = LANG_ID so MBart prepends the [indonesian] language
-            #   token to initiate decoding in the correct language.
+            # IndoBART-v2 decoder format: [LANG_ID=40002, BOS=1, ...tokens..., EOS=2]
+            # - decoder_start_token_id=LANG_ID  → first decoder token is [indonesian]
+            # - forced_bos_token_id=bos_token_id → forces second token to <s> (BOS=1)
+            # Pass these EXPLICITLY rather than via deprecated config mutation so
+            # HuggingFace uses them correctly without the UserWarning.
             return self.model.generate(
                 input_ids=input_ids,
-                forced_bos_token_id=LANG_ID,
+                decoder_start_token_id=LANG_ID,
+                forced_bos_token_id=self.model.config.bos_token_id,
                 max_length=max_length,
                 min_length=min_length,
                 do_sample=do_sample,
