@@ -74,7 +74,8 @@ def compute_rouge_scores(predictions, references):
 
 def evaluate_model(model_dir, src_file, tgt_file, batch_size=8, max_src_len=1024, max_gen_len=100):
     device = "cuda" if torch.cuda.is_available() else "cpu"
-
+    print(f"Evaluating model from {model_dir} on {src_file} and {tgt_file} using device {device}...")
+    
     tokenizer = IndoNLGTokenizer.from_pretrained(model_dir)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_dir).to(device)
     model.config.decoder_start_token_id = LANG_ID

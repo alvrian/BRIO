@@ -23,6 +23,7 @@ from nltk import sent_tokenize, word_tokenize
 from config import cnndm_setting, xsum_setting, liputan6_setting
 from indobenchmark import IndoNLGTokenizer
 from tqdm import tqdm
+import shutil
 
 logging.getLogger("transformers.tokenization_utils").setLevel(logging.ERROR)
 logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)
@@ -80,6 +81,8 @@ def evaluation(args):
         tok = PegasusTokenizer.from_pretrained(args.model_type) 
     elif args.config == "liputan6":
         tok = IndoNLGTokenizer.from_pretrained(args.model_type) #indobenchmark/indobart-v2
+        print("change data type to canonical")
+        args.datatype="canonical"
     else:
         tok = BartTokenizer.from_pretrained(args.model_type)
     collate_fn = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=True)
@@ -397,7 +400,9 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
         "mle_loss": mle_loss
         } 
 
-
+def _sync_to_drive(local_path, drive_path):
+    shutil.copyfile(local_path, drive_path)
+    
 def run(rank, args):
     if args.config == "cnndm":
         cnndm_setting(args)
@@ -606,6 +611,8 @@ def run(rank, args):
                     else:
                         recorder.save(model, "model_cur.bin")
                     recorder.save(s_optimizer, "optimizer.bin")
+                
+
 
 def main(args):
     # set env
@@ -645,3 +652,7 @@ if __name__ ==  "__main__":
                 main(args)
         else:
             main(args)
+
+
+#command to run the code with liputan6 dataset and indobart-v2 model:
+# python main.py --cuda --gpuid 0 --model_pt indobart-v2/model_generation.bin --config liputan6 --do_generation --do_reranking --dataset_folder /path/to/liputan6/dataset

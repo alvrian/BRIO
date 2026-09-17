@@ -36,8 +36,8 @@ def cnndm_setting(args):
     
 def liputan6_setting(args):
     # default setting for liputan6
-    args.batch_size = getattr(args, 'batch_size', 1)
-    args.epoch = getattr(args, 'epoch', 100)
+    args.batch_size = getattr(args, 'batch_size', 2)
+    args.epoch = getattr(args, 'epoch', 10)
     args.report_freq = getattr(args, "report_freq", 100)
     args.accumulate_step = getattr(args, "accumulate_step", 8)
     args.margin = getattr(args, "margin", 0.001)
@@ -55,7 +55,7 @@ def liputan6_setting(args):
     args.max_lr = getattr(args, "max_lr", 2e-3)
     args.scale = getattr(args, "scale", 1)
     args.score_mode = getattr(args, "score_mode", "log")
-    args.datatype = getattr(args, "datatype", "diverse")
+    args.datatype = getattr(args, "datatype", "canonical")
     args.dataset = getattr(args, "dataset", "liputan6")
     args.max_len = getattr(args, "max_len", 100)
     args.max_num = getattr(args, "max_num", 16)
