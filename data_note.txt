@@ -1,0 +1,7 @@
+canonical
+	train	193883
+	test	10972
+	val		10972
+xtreme
+	test	3862
+	val		4948

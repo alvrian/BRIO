@@ -135,7 +135,7 @@ IndoNLGTokenizer.decode = _patched_decode
 LANG_ID = 40002  # [indonesian]
 NUM_CANDIDATES = 16
 LOCAL_TMP_DIR = "/content/_gen_candidate_tmp"  # fast local disk, no network dependency
-SYNC_EVERY_N_BATCHES = 100  # copy local file -> Drive every N batches (~40 articles at bsz=8)
+SYNC_EVERY_N_BATCHES = 100  # copy local file -> Drive every N batches 
 
 
 def _build_batch(slines, tokenizer, max_src_len=1024):
@@ -202,7 +202,7 @@ def generate_summaries_liputan6(args):
 
     max_length = 100
     min_length = 20
-    bsz = 8
+    bsz = 16
 
     os.makedirs(LOCAL_TMP_DIR, exist_ok=True)
     local_tgt_dir = os.path.join(LOCAL_TMP_DIR, os.path.basename(args.tgt_dir))

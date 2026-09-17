@@ -6,12 +6,18 @@ from transformers import BartTokenizer, PegasusTokenizer
 from indobenchmark import IndoNLGTokenizer
 import glob
 
-# --- IndoNLGTokenizer compatibility patch (same as fine-tuning script) ---
+# --- IndoNLGTokenizer compatibility patches (apply once, process-wide) ---
 _original_pad = IndoNLGTokenizer.pad
 def _patched_pad(self, *args, **kwargs):
     kwargs.pop("padding_side", None)
     return _original_pad(self, *args, **kwargs)
 IndoNLGTokenizer.pad = _patched_pad
+
+_original_decode = IndoNLGTokenizer.decode
+def _patched_decode(self, *args, **kwargs):
+    kwargs.pop("clean_up_tokenization_spaces", None)
+    return _original_decode(self, *args, **kwargs)
+IndoNLGTokenizer.decode = _patched_decode
 
 LANG_ID = 40002  # [indonesian]
 
@@ -20,7 +26,6 @@ def to_cuda(batch, gpuid):
     for n in batch:
         if n != "data":
             batch[n] = batch[n].to(gpuid)
-
 
 
 class BrioDataset(Dataset):
@@ -60,31 +65,24 @@ class BrioDataset(Dataset):
         self.is_untok = is_untok
         self.is_pegasus = is_pegasus
 
-    def _encode_indonlg_candidate(self, text, max_length):
+    def __len__(self):
+        return self.num
+
+    def _encode_src_indonlg(self, text, max_length):
+        # encoder-input order: <s> X </s> [indonesian]
+        ids = self.tok.encode(text, max_length=max_length - 3, truncation=True, add_special_tokens=False)
+        return [self.tok.bos_token_id] + ids + [self.tok.eos_token_id, LANG_ID]
+
+    def _encode_cand_indonlg(self, text, max_length):
         # decoder-input order: [indonesian] <s> Y </s>
         ids = self.tok.encode(text, max_length=max_length - 3, truncation=True, add_special_tokens=False)
         return [LANG_ID, self.tok.bos_token_id] + ids + [self.tok.eos_token_id]
 
-    def _batch_encode_indonlg_candidates(self, texts, max_length):
+    def _batch_encode_cand_indonlg(self, texts, max_length):
         pad_id = self.tok.pad_token_id
-        batch_ids = [self._encode_indonlg_candidate(t, max_length) for t in texts]
+        batch_ids = [self._encode_cand_indonlg(t, max_length) for t in texts]
         max_len = max(len(ids) for ids in batch_ids)
         return torch.tensor([ids + [pad_id] * (max_len - len(ids)) for ids in batch_ids])
-    
-    def __len__(self):
-        return self.num
-
-    def _encode_indonlg(self, text, max_length):
-        # reserve 3 slots for bos, eos, lang id
-        ids = self.tok.encode(text, max_length=max_length - 3, truncation=True, add_special_tokens=False)
-        return [self.tok.bos_token_id] + ids + [self.tok.eos_token_id, LANG_ID]
-
-    def _batch_encode_indonlg(self, texts, max_length):
-        pad_id = self.tok.pad_token_id
-        batch_ids = [self._encode_indonlg(t, max_length) for t in texts]
-        max_len = max(len(ids) for ids in batch_ids)
-        input_ids = torch.tensor([ids + [pad_id] * (max_len - len(ids)) for ids in batch_ids])
-        return input_ids
 
     def __getitem__(self, idx):
         if self.isdir:
@@ -100,8 +98,7 @@ class BrioDataset(Dataset):
         src_txt = " ".join(article)
 
         if self.is_indonlg:
-            src_input_ids = self._encode_indonlg(src_txt, self.total_len)   # encoder side: <s> X </s> [indonesian]
-            src_input_ids = torch.tensor(src_input_ids)
+            src_input_ids = torch.tensor(self._encode_src_indonlg(src_txt, self.total_len))
         else:
             src = self.tok.batch_encode_plus([src_txt], max_length=self.total_len, return_tensors="pt", pad_to_max_length=False, truncation=True)
             src_input_ids = src["input_ids"].squeeze(0)
@@ -122,16 +119,13 @@ class BrioDataset(Dataset):
             candidates = _candidates
         cand_txt = [" ".join(abstract)] + [" ".join(x[0]) for x in candidates]
 
-        # if self.is_indonlg:
-        #     candidate_ids = self._batch_encode_indonlg(cand_txt, self.maxlen)
         if self.is_indonlg:
-            candidate_ids = self._batch_encode_indonlg_candidates(cand_txt, self.maxlen)  # decoder side: [indonesian] <s> Y </s>
+            candidate_ids = self._batch_encode_cand_indonlg(cand_txt, self.maxlen)
         else:
             cand = self.tok.batch_encode_plus(cand_txt, max_length=self.maxlen, return_tensors="pt", pad_to_max_length=False, truncation=True, padding=True)
             candidate_ids = cand["input_ids"]
 
         if self.is_pegasus:
-            # add start token
             _candidate_ids = candidate_ids.new_zeros(candidate_ids.size(0), candidate_ids.size(1) + 1)
             _candidate_ids[:, 1:] = candidate_ids.clone()
             _candidate_ids[:, 0] = self.tok.pad_token_id

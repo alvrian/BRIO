@@ -10,7 +10,7 @@ from compare_mt.rouge.rouge_scorer import RougeScorer
 # pyrefly: ignore [missing-import]
 from transformers import BartTokenizer, PegasusTokenizer
 from utils import Recorder
-from data_utils import to_cuda, collate_mp_brio, BrioDataset
+from data_utils import to_cuda, collate_mp_brio, BrioDataset, LANG_ID
 from torch.utils.data import DataLoader
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -218,6 +218,18 @@ def evaluation(args):
             rougeLsum = rougeLsum / total_num
             print("evaluation rouge1: %.6f, rouge2: %.6f, rougeL: %.6f"%(rouge1, rouge2, rougeLsum))
 
+def _build_indonlg_batch(slines, tok, max_src_len):
+    """Builds <s> X </s> [indonesian] formatted, padded input_ids + attention_mask."""
+    pad_id = tok.pad_token_id
+    batch_ids = []
+    for s in slines:
+        ids = tok.encode(s, max_length=max_src_len - 3, truncation=True, add_special_tokens=False)
+        ids = [tok.bos_token_id] + ids + [tok.eos_token_id, LANG_ID]
+        batch_ids.append(ids)
+    max_len = max(len(ids) for ids in batch_ids)
+    input_ids = torch.tensor([ids + [pad_id] * (max_len - len(ids)) for ids in batch_ids])
+    attention_mask = torch.tensor([[1] * len(ids) + [0] * (max_len - len(ids)) for ids in batch_ids])
+    return input_ids, attention_mask
 
 def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
     model.eval()
@@ -296,10 +308,19 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
                     to_cuda(batch, device)
                 samples = batch["data"]
                 slines = [" ".join(x["article_untok"]) for x in samples]
-                dct = tok.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
+
+                if args.config == "liputan6":
+                    input_ids, attention_mask = _build_indonlg_batch(slines, tok, args.total_len)
+                    input_ids = input_ids.to(device)
+                    attention_mask = attention_mask.to(device)
+                else:
+                    dct = tok.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
+                    input_ids = dct["input_ids"].to(device)
+                    attention_mask = dct["attention_mask"].to(device)
+
                 summaries = _model.generate(
-                    input_ids=dct["input_ids"].to(device),
-                    attention_mask=dct["attention_mask"].to(device),
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
                     max_length=args.gen_max_len + 2,  # +2 from original because we start at step=1 and stop before max_length
                     min_length=args.gen_min_len + 1,  # +1 from original because we start at step=1
                     no_repeat_ngram_size=3,
@@ -308,9 +329,8 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
                     length_penalty=args.length_penalty,
                     early_stopping=True,
                     num_beam_groups=1,
-                    # bos_token_id=tok.bos_token_id, #ganti model.py kalau mau dipake
                 )
-                dec = [tok.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
+                dec = [tok.decode(g.tolist() if args.config == "liputan6" else g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
                 for (hypothesis, x) in zip(dec, samples):
                     hypothesis = hypothesis.replace("\n", " ")
                     ref = " ".join(x["abstract_untok"])
@@ -321,6 +341,37 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
                     sample_rouge2 += score["rouge2"].fmeasure
                     sample_rougeLsum += score["rougeLsum"].fmeasure
                     cnt += 1
+        # with torch.no_grad():
+        #     for (i, batch) in enumerate(gen_dataloader):
+        #         if args.cuda:
+        #             to_cuda(batch, device)
+        #         samples = batch["data"]
+        #         slines = [" ".join(x["article_untok"]) for x in samples]
+        #         dct = tok.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
+        #         summaries = _model.generate(
+        #             input_ids=dct["input_ids"].to(device),
+        #             attention_mask=dct["attention_mask"].to(device),
+        #             max_length=args.gen_max_len + 2,  # +2 from original because we start at step=1 and stop before max_length
+        #             min_length=args.gen_min_len + 1,  # +1 from original because we start at step=1
+        #             no_repeat_ngram_size=3,
+        #             num_beams=args.num_beams,
+        #             num_return_sequences=1,
+        #             length_penalty=args.length_penalty,
+        #             early_stopping=True,
+        #             num_beam_groups=1,
+        #             # bos_token_id=tok.bos_token_id, #ganti model.py kalau mau dipake
+        #         )
+        #         dec = [tok.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
+        #         for (hypothesis, x) in zip(dec, samples):
+        #             hypothesis = hypothesis.replace("\n", " ")
+        #             ref = " ".join(x["abstract_untok"])
+        #             x = process(ref)
+        #             y = process(hypothesis)
+        #             score = rouge_scorer.score("\n".join(x), "\n".join(y))
+        #             sample_rouge1 += score["rouge1"].fmeasure
+        #             sample_rouge2 += score["rouge2"].fmeasure
+        #             sample_rougeLsum += score["rougeLsum"].fmeasure
+        #             cnt += 1
         _model.scoring_mode()
         sample_rouge1 = sample_rouge1 / cnt
         sample_rouge2 = sample_rouge2 / cnt
@@ -416,6 +467,8 @@ def run(rank, args):
     print(f'start building model')
     model_path = args.pretrained if args.pretrained is not None else args.model_type
     model = BRIO(model_path, tok.pad_token_id, is_pegasus=args.is_pegasus)
+    if args.dataset == "liputan6":
+        model.model.config.decoder_start_token_id = 40002  
     if len(args.model_pt) > 0:
         map_loc = f'cuda:{gpuid}' if args.cuda else 'cpu'
         model.load_state_dict(torch.load(os.path.join("./cache", args.model_pt), map_location=map_loc))
