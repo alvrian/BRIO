@@ -4,7 +4,10 @@ import torch.nn.functional as F
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 from modeling_bart import BartScorer
 from modeling_pegasus import PegasusScorer
+# pyrefly: ignore [missing-import]
 from transformers import MBartForConditionalGeneration
+
+LANG_ID = 40002  # [indonesian] language token for IndoBART-v2
 
 def RankingLoss(score, summary_score=None, margin=0, gold_margin=0, gold_weight=1, no_gold=False, no_cand=False):
     ones = torch.ones_like(score)
@@ -164,38 +167,79 @@ class BRIO(nn.Module):
         synced_gpus: Optional[bool] = None,
         **model_kwargs,
     ):
-        return self.model.generate(
-            input_ids=input_ids,
-            bos_token_id=self.model.config.bos_token_id,
-            decoder_start_token_id=self.model.config.decoder_start_token_id,                       
-            max_length=max_length,
-            min_length=min_length,
-            do_sample=do_sample,
-            early_stopping=early_stopping,
-            num_beams=num_beams,
-            temperature=temperature,
-            top_k=top_k,
-            top_p=top_p,
-            repetition_penalty=repetition_penalty,
-            bad_words_ids=bad_words_ids,
-            pad_token_id=pad_token_id,
-            eos_token_id=eos_token_id,
-            length_penalty=length_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            encoder_no_repeat_ngram_size=encoder_no_repeat_ngram_size,
-            num_return_sequences=num_return_sequences,
-            max_time=max_time,
-            use_cache=use_cache,
-            num_beam_groups=num_beam_groups,
-            diversity_penalty=diversity_penalty,
-            prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            output_scores=output_scores,
-            return_dict_in_generate=return_dict_in_generate,
-            forced_bos_token_id=forced_bos_token_id,
-            forced_eos_token_id=forced_eos_token_id,
-            remove_invalid_values=remove_invalid_values,
-            synced_gpus=synced_gpus,
-            **model_kwargs
-        )
+        if self.is_indobart:
+            # For MBartForConditionalGeneration (IndoBART-v2):
+            # - Do NOT manually override bos_token_id / decoder_start_token_id from config;
+            #   MBart handles those internally and overriding them causes CUDA index-out-of-bounds
+            #   errors during beam search (position IDs exceed embedding table size).
+            # - Set forced_bos_token_id = LANG_ID so MBart prepends the [indonesian] language
+            #   token to initiate decoding in the correct language.
+            return self.model.generate(
+                input_ids=input_ids,
+                forced_bos_token_id=LANG_ID,
+                max_length=max_length,
+                min_length=min_length,
+                do_sample=do_sample,
+                early_stopping=early_stopping,
+                num_beams=num_beams,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+                bad_words_ids=bad_words_ids,
+                pad_token_id=pad_token_id,
+                eos_token_id=eos_token_id,
+                length_penalty=length_penalty,
+                no_repeat_ngram_size=no_repeat_ngram_size,
+                encoder_no_repeat_ngram_size=encoder_no_repeat_ngram_size,
+                num_return_sequences=num_return_sequences,
+                max_time=max_time,
+                use_cache=use_cache,
+                num_beam_groups=num_beam_groups,
+                diversity_penalty=diversity_penalty,
+                prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                output_scores=output_scores,
+                return_dict_in_generate=return_dict_in_generate,
+                forced_eos_token_id=forced_eos_token_id,
+                remove_invalid_values=remove_invalid_values,
+                synced_gpus=synced_gpus,
+                **model_kwargs
+            )
+        else:
+            return self.model.generate(
+                input_ids=input_ids,
+                bos_token_id=self.model.config.bos_token_id,
+                decoder_start_token_id=self.model.config.decoder_start_token_id,                       
+                max_length=max_length,
+                min_length=min_length,
+                do_sample=do_sample,
+                early_stopping=early_stopping,
+                num_beams=num_beams,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+                bad_words_ids=bad_words_ids,
+                pad_token_id=pad_token_id,
+                eos_token_id=eos_token_id,
+                length_penalty=length_penalty,
+                no_repeat_ngram_size=no_repeat_ngram_size,
+                encoder_no_repeat_ngram_size=encoder_no_repeat_ngram_size,
+                num_return_sequences=num_return_sequences,
+                max_time=max_time,
+                use_cache=use_cache,
+                num_beam_groups=num_beam_groups,
+                diversity_penalty=diversity_penalty,
+                prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                output_scores=output_scores,
+                return_dict_in_generate=return_dict_in_generate,
+                forced_bos_token_id=forced_bos_token_id,
+                forced_eos_token_id=forced_eos_token_id,
+                remove_invalid_values=remove_invalid_values,
+                synced_gpus=synced_gpus,
+                **model_kwargs
+            )

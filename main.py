@@ -21,6 +21,7 @@ from label_smoothing_loss import label_smoothing_loss
 # pyrefly: ignore [missing-import]
 from nltk import sent_tokenize, word_tokenize
 from config import cnndm_setting, xsum_setting, liputan6_setting
+# pyrefly: ignore [missing-import]
 from indobenchmark import IndoNLGTokenizer
 from tqdm import tqdm
 import shutil
@@ -611,7 +612,17 @@ def run(rank, args):
                     else:
                         recorder.save(model, "model_cur.bin")
                     recorder.save(s_optimizer, "optimizer.bin")
-                
+
+        # --- sync checkpoints to Google Drive after each epoch (liputan6 only) ---
+        if args.dataset == "liputan6" and is_master:
+            drive_dir = "/content/drive/MyDrive/BRIO_checkpoint"
+            os.makedirs(drive_dir, exist_ok=True)
+            for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin"]:
+                src = os.path.join(recorder.dir, ckpt_name)
+                if os.path.exists(src):
+                    _sync_to_drive(src, os.path.join(drive_dir, ckpt_name))
+            recorder.print(f"[epoch {epoch+1}] checkpoints synced to {drive_dir}")
+
 
 
 def main(args):
