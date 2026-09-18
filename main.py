@@ -321,11 +321,11 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
                     dct = tok.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
                     input_ids = dct["input_ids"].to(device)
                     attention_mask = dct["attention_mask"].to(device)
-
+                max_gen_len = min(args.gen_max_len + 2, 1023)
                 summaries = _model.generate(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
-                    max_length=args.gen_max_len + 2,
+                    max_length=max_gen_len,
                     min_length=args.gen_min_len + 1,
                     no_repeat_ngram_size=3,
                     num_beams=args.num_beams,
@@ -638,6 +638,7 @@ def run(rank, args):
         if args.dataset == "liputan6" and is_master:
             drive_dir = "/content/drive/MyDrive/BRIO_Liputan6_checkpoint"
             os.makedirs(drive_dir, exist_ok=True)
+            print("Syncing checkpoints to Google Drive...")
             for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin"]:
                 src = os.path.join(recorder.dir, ckpt_name)
                 if os.path.exists(src):
