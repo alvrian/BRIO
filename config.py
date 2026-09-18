@@ -43,8 +43,8 @@ def liputan6_setting(args):
     args.margin = getattr(args, "margin", 0.001)
     args.gold_margin = getattr(args, "gold_margin", 0)
     args.gold_weight = getattr(args, "gold_weight", 0)
-    args.mle_weight = getattr(args, "mle_weight", 0.1)
-    args.rank_weight = getattr(args, "rank_weight", 10)
+    args.mle_weight = getattr(args, "mle_weight", 0.1) #mle  weight di brio paper
+    args.rank_weight = getattr(args, "rank_weight", 10) #gamma di brio paper buat adjust pengaruh contrastive loss
     args.model_type = getattr(args, "model_type", "indobenchmark/indobart-v2")
     args.warmup_steps = getattr(args, "warmup_steps", 10000)
     args.normalize = getattr(args, "normalize", True)

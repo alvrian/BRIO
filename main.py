@@ -164,16 +164,17 @@ def evaluation(args):
                 if count % bsz == 0:
                     with torch.no_grad():
                         dct = tokenizer.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
+                        gen_max_len = min(args.gen_max_len + 2, 1023)
                         summaries = model.generate(
                             input_ids=dct["input_ids"].to(device),
                             attention_mask=dct["attention_mask"].to(device),
-                            max_length=args.gen_max_len + 2,  # +2 from original because we start at step=1 and stop before max_length
+                            max_length=gen_max_len,
                             min_length=args.gen_min_len + 1,  # +1 from original because we start at step=1
                             no_repeat_ngram_size=3,
                             num_beams=args.num_beams,
                             length_penalty=args.length_penalty,
                             early_stopping=True,
-                            use_cache=False
+                            # use_cache=False
                         )
                         dec = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
                     for hypothesis in dec:
@@ -334,7 +335,7 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
                     length_penalty=args.length_penalty,
                     early_stopping=True,
                     num_beam_groups=1,
-                    use_cache=False
+                    # use_cache=False
                 )
                 dec = [tok.decode(g.tolist() if args.config == "liputan6" else g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
                 for (hypothesis, x) in zip(dec, samples):
