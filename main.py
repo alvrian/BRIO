@@ -173,6 +173,7 @@ def evaluation(args):
                             num_beams=args.num_beams,
                             length_penalty=args.length_penalty,
                             early_stopping=True,
+                            use_cache=False
                         )
                         dec = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
                     for hypothesis in dec:
@@ -333,6 +334,7 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
                     length_penalty=args.length_penalty,
                     early_stopping=True,
                     num_beam_groups=1,
+                    use_cache=False
                 )
                 dec = [tok.decode(g.tolist() if args.config == "liputan6" else g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
                 for (hypothesis, x) in zip(dec, samples):
@@ -633,7 +635,16 @@ def run(rank, args):
                     else:
                         recorder.save(model, "model_cur.bin")
                     recorder.save(s_optimizer, "optimizer.bin")
-
+                    # --- sync checkpoints to Google Drive every eval_interval steps ---
+                    if args.dataset == "liputan6":
+                        drive_dir = "/content/drive/MyDrive/BRIO_Liputan6_checkpoint"
+                        os.makedirs(drive_dir, exist_ok=True)
+                        for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin"]:
+                            src = os.path.join(recorder.dir, ckpt_name)
+                            if os.path.exists(src):
+                                _sync_to_drive(src, os.path.join(drive_dir, ckpt_name))
+                        recorder.print(f"[step {all_step_cnt}] checkpoints synced to {drive_dir}")
+                        
         # --- sync checkpoints to Google Drive after each epoch (liputan6 only) ---
         if args.dataset == "liputan6" and is_master:
             drive_dir = "/content/drive/MyDrive/BRIO_Liputan6_checkpoint"
