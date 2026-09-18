@@ -92,7 +92,10 @@ def evaluation(args):
     batch_size = 4
     dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn)
     # build models
+    
     model_path = args.pretrained if args.pretrained is not None else args.model_type
+    if(args.pretrained is not None):
+        print(f"loading pretrained model from {args.pretrained}")
     model = BRIO(model_path, tok.pad_token_id, args.is_pegasus)
     if args.cuda:
         model = model.cuda()
@@ -475,6 +478,7 @@ def run(rank, args):
     # build models
     print(f'start building model')
     model_path = args.pretrained if args.pretrained is not None else args.model_type
+    
     model = BRIO(model_path, tok.pad_token_id, is_pegasus=args.is_pegasus)
 
     # --- IndoBART size-mismatch guards ---
@@ -521,6 +525,12 @@ def run(rank, args):
     else:
         mle_fn = nn.CrossEntropyLoss(ignore_index=tok.pad_token_id)
     s_optimizer = optim.Adam(model.parameters())
+    if len(args.model_pt) > 0:
+        opt_path = os.path.join("./cache", os.path.dirname(args.model_pt), "optimizer.bin")
+        if os.path.exists(opt_path):
+            map_loc = f'cuda:{gpuid}' if args.cuda else 'cpu'
+            s_optimizer.load_state_dict(torch.load(opt_path, map_location=map_loc))
+            print(f"Loaded optimizer state from {opt_path}")
     if is_master:
         recorder.write_config(args, [model], __file__)
     minimum_ranking_loss = 100
@@ -638,7 +648,7 @@ def run(rank, args):
                     recorder.save(s_optimizer, "optimizer.bin")
                     # --- sync checkpoints to Google Drive every eval_interval steps ---
                     if args.dataset == "liputan6":
-                        drive_dir = "/content/drive/MyDrive/BRIO_Liputan6_checkpoint"
+                        drive_dir = f"/content/drive/MyDrive/BRIO_Liputan6_checkpoint/{all_step_cnt}" #hardcoded for now, please change later
                         os.makedirs(drive_dir, exist_ok=True)
                         for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin"]:
                             src = os.path.join(recorder.dir, ckpt_name)
@@ -646,9 +656,10 @@ def run(rank, args):
                                 _sync_to_drive(src, os.path.join(drive_dir, ckpt_name))
                         recorder.print(f"[step {all_step_cnt}] checkpoints synced to {drive_dir}")
                         
-        # --- sync checkpoints to Google Drive after each epoch (liputan6 only) ---
+        # --- sync checkpoints to Google Drive after each epoch (liputan6 only)
+        # please change later
         if args.dataset == "liputan6" and is_master:
-            drive_dir = "/content/drive/MyDrive/BRIO_Liputan6_checkpoint"
+            drive_dir = f"/content/drive/MyDrive/BRIO_Liputan6_checkpoint/master_{args.mle_weight}_{args.rank_weight}" #hardcoded for now, please change later
             os.makedirs(drive_dir, exist_ok=True)
             print("Syncing checkpoints to Google Drive...")
             for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin"]:

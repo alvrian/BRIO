@@ -51,7 +51,7 @@ def liputan6_setting(args):
     args.grad_norm = getattr(args, "grad_norm", 0)
     args.seed = getattr(args, "seed", 970903)
     args.no_gold = getattr(args, "no_gold", False)
-    args.pretrained = getattr(args, "pretrained", None)
+    args.pretrained = getattr(args, "pretrained", "indobart-liputan6-finetuned")
     args.max_lr = getattr(args, "max_lr", 2e-3)
     args.scale = getattr(args, "scale", 1)
     args.score_mode = getattr(args, "score_mode", "log")
