@@ -701,10 +701,12 @@ def run(rank, args):
                     if args.dataset == "liputan6":
                         drive_dir = f"/content/drive/MyDrive/BRIO_Liputan6_checkpoint/{all_step_cnt}" #hardcoded for now, please change later
                         os.makedirs(drive_dir, exist_ok=True)
-                        for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin"]:
+                        for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin", 'train_state.json']:
                             src = os.path.join(recorder.dir, ckpt_name)
                             if os.path.exists(src):
                                 _sync_to_drive(src, os.path.join(drive_dir, ckpt_name))
+                            else:
+                                print(f"WARNING: {src} does not exist, skipping sync to Google Drive.")
                         recorder.print(f"[step {all_step_cnt}] checkpoints synced to {drive_dir}")
                         
         # --- sync checkpoints to Google Drive after each epoch (liputan6 only)
