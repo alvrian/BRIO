@@ -1,3 +1,5 @@
+import json
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -503,9 +505,38 @@ def run(rank, args):
                   f"max_position_embeddings={max_pos} → capping to {max_pos}")
             args.total_len = max_pos
 
+    # if len(args.model_pt) > 0:
+    #     map_loc = f'cuda:{gpuid}' if args.cuda else 'cpu'
+    #     model.load_state_dict(torch.load(os.path.join("./cache", args.model_pt), map_location=map_loc))
+    start_epoch = 0
+    resume_all_step_cnt = 0
+    resume_min_ranking_loss = 100
+    resume_min_mle_loss = 1e5
+
     if len(args.model_pt) > 0:
         map_loc = f'cuda:{gpuid}' if args.cuda else 'cpu'
+        ckpt_dir = os.path.join("./cache", os.path.dirname(args.model_pt))
         model.load_state_dict(torch.load(os.path.join("./cache", args.model_pt), map_location=map_loc))
+
+        state_path = os.path.join(ckpt_dir, "train_state.json")
+        if os.path.exists(state_path):
+            with open(state_path) as f:
+                saved_state = json.load(f)
+            start_epoch = saved_state["epoch"]
+            resume_all_step_cnt = saved_state["all_step_cnt"]
+            resume_min_ranking_loss = saved_state["minimum_ranking_loss"]
+            resume_min_mle_loss = saved_state["minimum_mle_loss"]
+            print(f"Resuming from epoch {start_epoch}, step {resume_all_step_cnt}")
+        else:
+            print(f"WARNING: no train_state.json found in {ckpt_dir} — resuming weights only, "
+                  f"step count/LR schedule/epoch will restart from scratch.")
+
+        optimizer_path = os.path.join(ckpt_dir, "optimizer.bin")
+        if os.path.exists(optimizer_path):
+            s_optimizer_state = torch.load(optimizer_path, map_location=map_loc)
+        else:
+            s_optimizer_state = None
+            print(f"WARNING: no optimizer.bin found in {ckpt_dir} — optimizer state will restart fresh.")
     if args.cuda:
         if is_mp:
             # Using DDP
@@ -525,17 +556,19 @@ def run(rank, args):
     else:
         mle_fn = nn.CrossEntropyLoss(ignore_index=tok.pad_token_id)
     s_optimizer = optim.Adam(model.parameters())
-    if len(args.model_pt) > 0:
-        opt_path = os.path.join("./cache", os.path.dirname(args.model_pt), "optimizer.bin")
-        if os.path.exists(opt_path):
-            map_loc = f'cuda:{gpuid}' if args.cuda else 'cpu'
-            s_optimizer.load_state_dict(torch.load(opt_path, map_location=map_loc))
-            print(f"Loaded optimizer state from {opt_path}")
+    s_optimizer = optim.Adam(model.parameters())
+    if len(args.model_pt) > 0 and s_optimizer_state is not None:
+        s_optimizer.load_state_dict(s_optimizer_state)
     if is_master:
         recorder.write_config(args, [model], __file__)
-    minimum_ranking_loss = 100
-    minimum_mle_loss = 1e5
-    all_step_cnt = 0
+        
+    # minimum_ranking_loss = 100
+    # minimum_mle_loss = 1e5
+    # all_step_cnt = 0
+    
+    minimum_ranking_loss = resume_min_ranking_loss if len(args.model_pt) > 0 else 100
+    minimum_mle_loss = resume_min_mle_loss if len(args.model_pt) > 0 else 1e5
+    all_step_cnt = resume_all_step_cnt if len(args.model_pt) > 0 else 0
     if is_mp:
         if is_master:
             id = torch.FloatTensor([id]).to(gpuid)
@@ -551,7 +584,7 @@ def run(rank, args):
         def eval_fn(rouge1, rouge2, rougeLsum):
             return 1 - (rouge1 * rouge2 + rougeLsum) / 3
     # start training
-    for epoch in range(args.epoch):
+    for epoch in range(start_epoch, args.epoch):
         s_optimizer.zero_grad()
         avg_ranking_loss = 0
         avg_mle_loss = 0
@@ -646,6 +679,14 @@ def run(rank, args):
                     else:
                         recorder.save(model, "model_cur.bin")
                     recorder.save(s_optimizer, "optimizer.bin")
+                    train_state = {
+                        "epoch": epoch,
+                        "all_step_cnt": all_step_cnt,
+                        "minimum_ranking_loss": minimum_ranking_loss,
+                        "minimum_mle_loss": minimum_mle_loss,
+                    }
+                    with open(os.path.join(recorder.dir, "train_state.json"), "w") as f:
+                        json.dump(train_state, f)
                     # --- sync checkpoints to Google Drive every eval_interval steps ---
                     if args.dataset == "liputan6":
                         drive_dir = f"/content/drive/MyDrive/BRIO_Liputan6_checkpoint/{all_step_cnt}" #hardcoded for now, please change later
@@ -711,4 +752,8 @@ if __name__ ==  "__main__":
 
 
 #command to run the code with liputan6 dataset and indobart-v2 model:
-# python main.py --cuda --gpuid 0 --model_pt indobart-v2/model_generation.bin --config liputan6 --do_generation --do_reranking --dataset_folder /path/to/liputan6/dataset
+# python main.py --cuda --gpuid 0 --model_pt indobart-v2/modela_generation.bin --config liputan6 --do_generation --do_reranking --dataset_folder /path/to/liputan6/dataset
+
+# !conda run --no-capture-output -n env python main.py \
+#     --cuda --gpuid 0 --config liputan6 -l \
+#     --model_pt <recorder-folder-name>/model_cur.bin
