@@ -67,7 +67,7 @@ def liputan6_setting(args):
     args.gen_min_len = getattr(args, "gen_min_len", 20)
     args.is_pegasus = getattr(args, "is_pegasus", False)
     args.adding = getattr(args, "adding", 0)
-    args.eval_interval = getattr(args, "eval_interval", 1000)
+    args.eval_interval = getattr(args, "eval_interval", 2000)
     args.num_beams = getattr(args, "num_beams", 4)
     
 def xsum_setting(args):

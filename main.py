@@ -488,7 +488,7 @@ def run(rank, args):
     # model's embedding table was originally sized for, causing CUDA
     # out-of-bounds (srcIndex < srcSelectDimSize) on token-ID lookup.
     # resize_token_embeddings() grows the table safely if needed.
-    if args.dataset == "liputan6":
+    if args.dataset == "liputan6" and len(args.model_pt) == 0:
         tok_vocab_size = len(tok)
         model_vocab_size = model.model.config.vocab_size
         if tok_vocab_size != model_vocab_size:
@@ -497,7 +497,6 @@ def run(rank, args):
             model.model.resize_token_embeddings(tok_vocab_size)
 
         # Cap total_len to the model's actual max_position_embeddings.
-        # IndoBART-v2 may only support 512 positions; sending 1024-token
         # sequences causes position-embedding index overflows during beam search.
         max_pos = model.model.config.max_position_embeddings
         if args.total_len > max_pos:
@@ -555,7 +554,7 @@ def run(rank, args):
         mle_fn = label_smoothing_loss(ignore_index=tok.pad_token_id, epsilon=args.smooth)
     else:
         mle_fn = nn.CrossEntropyLoss(ignore_index=tok.pad_token_id)
-    s_optimizer = optim.Adam(model.parameters())
+    # s_optimizer = optim.Adam(model.parameters())
     s_optimizer = optim.Adam(model.parameters())
     if len(args.model_pt) > 0 and s_optimizer_state is not None:
         s_optimizer.load_state_dict(s_optimizer_state)
@@ -591,7 +590,18 @@ def run(rank, args):
         step_cnt = 0
         epoch_step = 0
         avg_loss = 0
+        batches_to_skip = 0
+        if epoch == start_epoch and len(args.model_pt) > 0:
+            steps_per_epoch = len(dataloader) // args.accumulate_step
+            steps_in_current_epoch = resume_all_step_cnt % steps_per_epoch
+            batches_to_skip = steps_in_current_epoch * args.accumulate_step
+            epoch_step = steps_in_current_epoch  # Restore the logging counter
+            if is_master:
+                print(f"Fast-forwarding: Skipping first {batches_to_skip} batches to resume at step {resume_all_step_cnt}")
+                
         for (i, batch) in enumerate(dataloader):
+            if epoch == start_epoch and i < batches_to_skip:
+                continue
             if args.cuda:
                 to_cuda(batch, gpuid)
             step_cnt += 1
