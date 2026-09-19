@@ -88,9 +88,13 @@ def evaluation(args):
         args.datatype="canonical"
     else:
         tok = BartTokenizer.from_pretrained(args.model_type)
+    # collate_fn = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=True)
+    # test_set = BrioDataset(f"./{args.dataset}/{args.datatype}/test", args.model_type, is_test=True, max_len=512,
+    #             is_sorted=False, max_num=args.max_num, is_untok=True, total_len=args.total_len, is_pegasus=args.is_pegasus)
     collate_fn = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=True)
     test_set = BrioDataset(f"./{args.dataset}/{args.datatype}/test", args.model_type, is_test=True, max_len=512,
-                is_sorted=False, max_num=args.max_num, is_untok=True, total_len=args.total_len, is_pegasus=args.is_pegasus)
+                is_sorted=False, max_num=args.max_num, is_untok=True, total_len=args.total_len, 
+                is_pegasus=args.is_pegasus, is_indonlg=(args.dataset == "liputan6"))
     batch_size = 4
     dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn)
     # build models
@@ -515,7 +519,7 @@ def run(rank, args):
     if len(args.model_pt) > 0:
         map_loc = f'cuda:{gpuid}' if args.cuda else 'cpu'
         ckpt_dir = os.path.join("./cache", os.path.dirname(args.model_pt))
-        model.load_state_dict(torch.load(os.path.join("./cache", args.model_pt), map_location=map_loc))
+        model.load_state_dict(torch.load(os.path.join("./cache", args.model_pt), map_location=map_loc, weight_only=True))
 
         state_path = os.path.join(ckpt_dir, "train_state.json")
         if os.path.exists(state_path):
@@ -532,7 +536,7 @@ def run(rank, args):
 
         optimizer_path = os.path.join(ckpt_dir, "optimizer.bin")
         if os.path.exists(optimizer_path):
-            s_optimizer_state = torch.load(optimizer_path, map_location=map_loc)
+            s_optimizer_state = torch.load(optimizer_path, map_location=map_loc, weight_only=True)
         else:
             s_optimizer_state = None
             print(f"WARNING: no optimizer.bin found in {ckpt_dir} — optimizer state will restart fresh.")
@@ -606,21 +610,30 @@ def run(rank, args):
                 to_cuda(batch, gpuid)
             step_cnt += 1
             # forward pass
-            output = model(batch["src_input_ids"], batch["candidate_ids"], args.normalize, args.score_mode, args.length_penalty, adding=args.adding)
-            similarity, gold_similarity = output['score'], output['summary_score']
-            similarity = similarity * args.scale
-            gold_similarity = gold_similarity * args.scale
-            ranking_loss = RankingLoss(similarity, gold_similarity, args.margin, args.gold_margin, args.gold_weight)
-            probs = output["probs"]  # [bz, seq_len, word_num]
-            probs = output["probs"][:, :-1]  # truncate last token
-            gold = batch["candidate_ids"][:, 0, 1:]  # shift right
-            mle_loss = mle_fn(probs.transpose(1, 2), gold)
-            loss = args.rank_weight * ranking_loss + args.mle_weight * mle_loss
+            with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                output = model(
+                    batch["src_input_ids"], 
+                    batch["candidate_ids"], 
+                    args.normalize, 
+                    args.score_mode, 
+                    args.length_penalty, 
+                    adding=args.adding
+                )
+                similarity, gold_similarity = output['score'], output['summary_score']
+                similarity = similarity * args.scale
+                gold_similarity = gold_similarity * args.scale
+                ranking_loss = RankingLoss(similarity, gold_similarity, args.margin, args.gold_margin, args.gold_weight)
+                probs = output["probs"]  # [bz, seq_len, word_num]
+                probs = output["probs"][:, :-1]  # truncate last token
+                gold = batch["candidate_ids"][:, 0, 1:]  # shift right
+                mle_loss = mle_fn(probs.transpose(1, 2), gold)
+                loss = args.rank_weight * ranking_loss + args.mle_weight * mle_loss
             loss = loss / args.accumulate_step
             avg_loss += loss.item()
             avg_mle_loss += mle_loss.item() / args.accumulate_step
             avg_ranking_loss += ranking_loss.item() / args.accumulate_step
             loss.backward()
+            
             if step_cnt == args.accumulate_step:
                 # updating
                 if args.grad_norm > 0:
