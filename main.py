@@ -134,7 +134,14 @@ def evaluation(args):
                 if args.cuda:
                     to_cuda(batch, args.gpuid[0])
                 samples = batch["data"]
-                output = model(batch["src_input_ids"], batch["candidate_ids"], args.normalize, args.score_mode, args.length_penalty, adding=args.adding)
+                output = model(
+                    batch["src_input_ids"],
+                    batch["candidate_ids"],
+                    args.normalize,
+                    args.score_mode,
+                    args.length_penalty,
+                    adding=args.adding
+                )
                 similarity = output['score']
                 similarity = similarity.cpu().numpy()
                 max_ids = similarity.argmax(1)
@@ -272,7 +279,14 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
             if args.cuda:
                 to_cuda(batch, device)
             samples = batch["data"]
-            output = model(batch["src_input_ids"], batch["candidate_ids"], args.normalize, args.score_mode, args.length_penalty, adding=args.adding)
+            output = model(
+                    batch["src_input_ids"], 
+                    batch["candidate_ids"], 
+                    args.normalize, 
+                    args.score_mode, 
+                    args.length_penalty, 
+                    adding=args.adding
+                )
             similarity, gold_similarity = output['score'], output['summary_score']
             similarity = similarity * args.scale
             gold_similarity = gold_similarity * args.scale
@@ -610,7 +624,7 @@ def run(rank, args):
                 to_cuda(batch, gpuid)
             step_cnt += 1
             # forward pass
-            with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+            with torch.amp.autocast(dtype=torch.bfloat16, device_type="cuda"):
                 output = model(
                     batch["src_input_ids"], 
                     batch["candidate_ids"], 
@@ -619,16 +633,20 @@ def run(rank, args):
                     args.length_penalty, 
                     adding=args.adding
                 )
-                similarity, gold_similarity = output['score'], output['summary_score']
-                similarity = similarity * args.scale
-                gold_similarity = gold_similarity * args.scale
-                ranking_loss = RankingLoss(similarity, gold_similarity, args.margin, args.gold_margin, args.gold_weight)
-                probs = output["probs"]  # [bz, seq_len, word_num]
-                probs = output["probs"][:, :-1]  # truncate last token
-                gold = batch["candidate_ids"][:, 0, 1:]  # shift right
-                mle_loss = mle_fn(probs.transpose(1, 2), gold)
-                loss = args.rank_weight * ranking_loss + args.mle_weight * mle_loss
+            similarity, gold_similarity = output['score'], output['summary_score']
+            similarity = similarity * args.scale
+            gold_similarity = gold_similarity * args.scale
+            
+            ranking_loss = RankingLoss(similarity, gold_similarity, args.margin, args.gold_margin, args.gold_weight)
+            #probs = output["probs"]  # [bz, seq_len, word_num]
+            probs = output["probs"][:, :-1]  # truncate last token
+            gold = batch["candidate_ids"][:, 0, 1:]  # shift right
+            
+            mle_loss = mle_fn(probs.transpose(1, 2), gold)
+            
+            loss = args.rank_weight * ranking_loss + args.mle_weight * mle_loss
             loss = loss / args.accumulate_step
+            
             avg_loss += loss.item()
             avg_mle_loss += mle_loss.item() / args.accumulate_step
             avg_ranking_loss += ranking_loss.item() / args.accumulate_step
@@ -664,6 +682,12 @@ def run(rank, args):
             del similarity, gold_similarity, loss, mle_loss, ranking_loss, output, probs
 
             if all_step_cnt % args.eval_interval == 0 and all_step_cnt != 0 and step_cnt == 0:
+                if is_master:
+                    if is_mp:
+                        recorder.save(model.module, "model_temp.bin")
+                    else:
+                        recorder.save(model, "model_temp.bin")
+                    recorder.print(f"[step {all_step_cnt}] saved model_temp.bin before evaluation")
                 # evaluate the model as a scorer
                 result = test(val_dataloader, val_gen_dataloader, model, args, tok, gpuid, args.do_sample)
                 loss = eval_fn(result["rouge1"], result["rouge2"], result["rougeLsum"])

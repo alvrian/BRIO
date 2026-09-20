@@ -196,7 +196,7 @@ class BRIO(nn.Module):
                 num_return_sequences=num_return_sequences,
                 max_time=max_time,
                 # use_cache=use_cache,
-                use_cache=True,  # IndoBART-v2 decoder does not support use_cache=False_cache=True,  # IndoBART-v2 decoder does not support use_cache=False
+                use_cache=False,  # IndoBART-v2 decoder does not support use_cache=False_cache=True,  # IndoBART-v2 decoder does not support use_cache=False
                 num_beam_groups=num_beam_groups,
                 diversity_penalty=diversity_penalty,
                 prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,

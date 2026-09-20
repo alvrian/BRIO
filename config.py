@@ -37,7 +37,7 @@ def cnndm_setting(args):
 def liputan6_setting(args):
     # default setting for liputan6
     args.batch_size = getattr(args, 'batch_size', 2)
-    args.epoch = getattr(args, 'epoch', 10)
+    args.epoch = getattr(args, 'epoch', 5)
     args.report_freq = getattr(args, "report_freq", 100)
     args.accumulate_step = getattr(args, "accumulate_step", 8)
     args.margin = getattr(args, "margin", 0.001)
