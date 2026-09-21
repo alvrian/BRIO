@@ -69,32 +69,89 @@ def compute_rouge_scores(predictions, references):
     average = 1 - (r1 * r2 + rl) / 3  # Match eval_fn ranking metric logic in main.py
     return {"rouge1": r1, "rouge2": r2, "rougeL": rl, "loss_metric": average}
 
-def evaluate_model(model_dir, base_model, src_file, tgt_file, batch_size=8, max_src_len=1024, max_gen_len=140, min_gen_len=55):
+# def evaluate_model(model_dir, base_model, src_file, tgt_file, batch_size=8, max_src_len=1024, max_gen_len=140, min_gen_len=55):
+#     device = "cuda" if torch.cuda.is_available() else "cpu"
+#     print(f"Evaluating model from {model_dir} on {src_file} using device {device}...")
+    
+#     is_brio_bin = os.path.isfile(model_dir) and model_dir.endswith('.bin')
+
+#     if is_brio_bin:
+#         print("Detected BRIO .bin checkpoint. Loading base model and applying state dict...")
+#         tokenizer = IndoNLGTokenizer.from_pretrained(base_model)
+#         model = AutoModelForSeq2SeqLM.from_pretrained(base_model)
+        
+#         # IndoBART size-mismatch guard
+#         if len(tokenizer) != model.config.vocab_size:
+#             model.resize_token_embeddings(len(tokenizer))
+            
+#         # Extract only the HF base model weights from the BRIO wrapper class
+#         state_dict = torch.load(model_dir, map_location=device)
+#         hf_state_dict = {k.replace("model.", "", 1): v for k, v in state_dict.items() if k.startswith("model.")}
+#         model.load_state_dict(hf_state_dict, strict=False)
+#     else:
+#         print("Detected HuggingFace directory structure. Loading standard model...")
+#         tokenizer = IndoNLGTokenizer.from_pretrained(model_dir)
+#         model = AutoModelForSeq2SeqLM.from_pretrained(model_dir)
+        
+#     model = model.to(device)
+#     model.config.decoder_start_token_id = LANG_ID
+#     model.eval()
+
+#     sources = load_lines(src_file)
+#     references = load_lines(tgt_file)
+#     pad_id = tokenizer.pad_token_id
+#     predictions = []
+
+#     for batch_src in tqdm(list(batchify(sources, batch_size))):
+#         batch_ids = [build_input_ids(s, tokenizer, max_src_len) for s in batch_src]
+#         max_len = max(len(x) for x in batch_ids)
+#         input_ids = torch.tensor([ids + [pad_id] * (max_len - len(ids)) for ids in batch_ids]).to(device)
+#         attention_mask = torch.tensor([[1] * len(ids) + [0] * (max_len - len(ids)) for ids in batch_ids]).to(device)
+
+#         with torch.no_grad():
+#             # Parameters updated to exactly match main.py generation mode
+#             gen_ids = model.generate(
+#                 input_ids=input_ids,
+#                 attention_mask=attention_mask,
+#                 max_length=max_gen_len + 2,
+#                 min_length=min_gen_len + 1,
+#                 num_beams=4,
+#                 length_penalty=2.0,
+#                 early_stopping=True,
+#                 no_repeat_ngram_size=3,
+#             )
+#         predictions.extend(tokenizer.decode(ids.tolist(), skip_special_tokens=True).strip() for ids in gen_ids)
+
+#     results = compute_rouge_scores(predictions, references)
+#     return results
+
+def evaluate_model(model_dir, base_model, src_file, tgt_file, batch_size=8, max_src_len=1024,
+                    max_gen_len=100, min_gen_len=20, length_penalty=1.0, num_beams=4):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Evaluating model from {model_dir} on {src_file} using device {device}...")
-    
+
     is_brio_bin = os.path.isfile(model_dir) and model_dir.endswith('.bin')
 
     if is_brio_bin:
         print("Detected BRIO .bin checkpoint. Loading base model and applying state dict...")
         tokenizer = IndoNLGTokenizer.from_pretrained(base_model)
         model = AutoModelForSeq2SeqLM.from_pretrained(base_model)
-        
-        # IndoBART size-mismatch guard
+
         if len(tokenizer) != model.config.vocab_size:
             model.resize_token_embeddings(len(tokenizer))
-            
-        # Extract only the HF base model weights from the BRIO wrapper class
+
         state_dict = torch.load(model_dir, map_location=device)
         hf_state_dict = {k.replace("model.", "", 1): v for k, v in state_dict.items() if k.startswith("model.")}
-        model.load_state_dict(hf_state_dict, strict=False)
+        missing, unexpected = model.load_state_dict(hf_state_dict, strict=False)
+        print(f"Loaded {len(hf_state_dict)} tensors — missing: {len(missing)}, unexpected: {len(unexpected)}")
+        if len(hf_state_dict) == 0:
+            raise RuntimeError("No matching keys found when loading BRIO checkpoint — check the .bin file's key prefixes.")
     else:
         print("Detected HuggingFace directory structure. Loading standard model...")
         tokenizer = IndoNLGTokenizer.from_pretrained(model_dir)
         model = AutoModelForSeq2SeqLM.from_pretrained(model_dir)
-        
+
     model = model.to(device)
-    model.config.decoder_start_token_id = LANG_ID
     model.eval()
 
     sources = load_lines(src_file)
@@ -109,16 +166,18 @@ def evaluate_model(model_dir, base_model, src_file, tgt_file, batch_size=8, max_
         attention_mask = torch.tensor([[1] * len(ids) + [0] * (max_len - len(ids)) for ids in batch_ids]).to(device)
 
         with torch.no_grad():
-            # Parameters updated to exactly match main.py generation mode
             gen_ids = model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
+                decoder_start_token_id=LANG_ID,
+                forced_bos_token_id=model.config.bos_token_id,
                 max_length=max_gen_len + 2,
                 min_length=min_gen_len + 1,
-                num_beams=4,
-                length_penalty=2.0,
+                num_beams=num_beams,
+                length_penalty=length_penalty,
                 early_stopping=True,
                 no_repeat_ngram_size=3,
+                use_cache=False,  # matches main.py's workaround for the MBart cache_position bug
             )
         predictions.extend(tokenizer.decode(ids.tolist(), skip_special_tokens=True).strip() for ids in gen_ids)
 
@@ -133,13 +192,22 @@ if __name__ == "__main__":
     parser.add_argument("--split", type=str, default="test", help="Which split to evaluate")
     parser.add_argument("--src_file", type=str, default=None, help="Override explicit path to source file")
     parser.add_argument("--tgt_file", type=str, default=None, help="Override explicit path to target file")
+    parser.add_argument("--max_gen_len", type=int, default=100)
+    parser.add_argument("--min_gen_len", type=int, default=20)
+    parser.add_argument("--length_penalty", type=float, default=1.0)
+    parser.add_argument("--num_beams", type=int, default=4)
 
     args = parser.parse_args()
 
     src_file = args.src_file or f"liputan6_converted/{args.partition}/{args.split}.source"
     tgt_file = args.tgt_file or f"liputan6_converted/{args.partition}/{args.split}.target"
 
-    results = evaluate_model(args.model_dir, args.base_model, src_file, tgt_file)
+    # results = evaluate_model(args.model_dir, args.base_model, src_file, tgt_file)
+    results = evaluate_model(
+        args.model_dir, args.base_model, src_file, tgt_file,
+        max_gen_len=args.max_gen_len, min_gen_len=args.min_gen_len,
+        length_penalty=args.length_penalty, num_beams=args.num_beams,
+    )
     print(f"\nPartition: {args.partition} | Split: {args.split}")
     print(f"ROUGE-1: {results['rouge1']:.4f}")
     print(f"ROUGE-2: {results['rouge2']:.4f}")

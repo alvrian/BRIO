@@ -533,7 +533,8 @@ def run(rank, args):
     if len(args.model_pt) > 0:
         map_loc = f'cuda:{gpuid}' if args.cuda else 'cpu'
         ckpt_dir = os.path.join("./cache", os.path.dirname(args.model_pt))
-        model.load_state_dict(torch.load(os.path.join("./cache", args.model_pt), map_location=map_loc, weight_only=True))
+        # model.load_state_dict(torch.load(os.path.join("./cache", args.model_pt), map_location=map_loc, weight_only=True))
+        model.load_state_dict(torch.load(os.path.join("./cache", args.model_pt), map_location=map_loc, weights_only=True))
 
         state_path = os.path.join(ckpt_dir, "train_state.json")
         if os.path.exists(state_path):
@@ -550,7 +551,7 @@ def run(rank, args):
 
         optimizer_path = os.path.join(ckpt_dir, "optimizer.bin")
         if os.path.exists(optimizer_path):
-            s_optimizer_state = torch.load(optimizer_path, map_location=map_loc, weight_only=True)
+            s_optimizer_state = torch.load(optimizer_path, map_location=map_loc, weights_only=True)
         else:
             s_optimizer_state = None
             print(f"WARNING: no optimizer.bin found in {ckpt_dir} — optimizer state will restart fresh.")

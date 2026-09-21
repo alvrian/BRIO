@@ -29,6 +29,11 @@ def _patched_save_vocabulary(self, save_directory, filename_prefix=None):
     return (out_vocab_file,)
 IndoNLGTokenizer.save_vocabulary = _patched_save_vocabulary
 
+_original_decode = IndoNLGTokenizer.decode
+def _patched_decode(self, *args, **kwargs):
+    kwargs.pop("clean_up_tokenization_spaces", None)
+    return _original_decode(self, *args, **kwargs)
+IndoNLGTokenizer.decode = _patched_decode
 
 LANG_ID = 40002  # [indonesian]
 
@@ -84,6 +89,7 @@ def main():
 
     tokenizer = IndoNLGTokenizer.from_pretrained(model_name)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    model.config.decoder_start_token_id = LANG_ID
 
     train_dataset = Liputan6Dataset(
         "liputan6_converted/canonical/train.source",
