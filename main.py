@@ -736,8 +736,8 @@ def run(rank, args):
                     with open(os.path.join(recorder.dir, "train_state.json"), "w") as f:
                         json.dump(train_state, f)
                     # --- sync checkpoints to Google Drive every eval_interval steps ---
-                    if args.dataset == "liputan6":
-                        drive_dir = f"/content/drive/MyDrive/BRIO_Liputan6_checkpoint/{all_step_cnt}" #hardcoded for now, please change later
+                    if args.dataset == "liputan6" and args.checkpoint_save_dir is not None:
+                        drive_dir = f"{args.checkpoint_save_dir}/{all_step_cnt}" #hardcoded for now, please change later
                         os.makedirs(drive_dir, exist_ok=True)
                         for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin", 'train_state.json']:
                             src = os.path.join(recorder.dir, ckpt_name)
@@ -749,8 +749,8 @@ def run(rank, args):
                         
         # --- sync checkpoints to Google Drive after each epoch (liputan6 only)
         # please change later
-        if args.dataset == "liputan6" and is_master:
-            drive_dir = f"/content/drive/MyDrive/BRIO_Liputan6_checkpoint/master_{args.mle_weight}_{args.rank_weight}" #hardcoded for now, please change later
+        if args.dataset == "liputan6" and args.checkpoint_save_dir is not None and is_master:
+            drive_dir = f"{args.checkpoint_save_dir}/master_{args.mle_weight}_{args.rank_weight}" #hardcoded for now, please change later
             os.makedirs(drive_dir, exist_ok=True)
             print("Syncing checkpoints to Google Drive...")
             for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin"]:
@@ -763,6 +763,9 @@ def run(rank, args):
 
 def main(args):
     # set env
+    if(args.checkpoint_save_dir is None and args.dataset == "liputan6"):
+        print("WARNING: --checkpoint_save_dir is not set. Checkpoints will not be synced to Google Drive.")
+        return
     if len(args.gpuid) > 1:
         os.environ['MASTER_ADDR'] = 'localhost'
         os.environ['MASTER_PORT'] = f'{args.port}'
@@ -782,6 +785,7 @@ if __name__ ==  "__main__":
     parser.add_argument("--model_pt", default="", type=str, help="model path")
     parser.add_argument("--config", default="", type=str, help="config path")
     parser.add_argument("--dataset_folder", default=None, type=str, help="custom path to dataset folder")
+    parser.add_argument("--checkpoint_save_dir", default=None, type=str, help="custom path to save checkpoints (for Google Drive sync)")
 
     args = parser.parse_args()
     print("start...")
