@@ -193,11 +193,11 @@ class BRIO(nn.Module):
                 length_penalty=length_penalty,
                 no_repeat_ngram_size=no_repeat_ngram_size,
                 encoder_no_repeat_ngram_size=encoder_no_repeat_ngram_size,
-                num_return_sequences=num_return_sequences,
+                num_return_sequences=num_return_sequences if num_return_sequences is not None else 1,
                 max_time=max_time,
                 # use_cache=use_cache,
-                use_cache=False,  # IndoBART-v2 decoder does not support use_cache=False_cache=True,  # IndoBART-v2 decoder does not support use_cache=False
-                num_beam_groups=num_beam_groups,
+                use_cache=False, # IndoBART-v2 decoder does not support use_cache=False
+                num_beam_groups=num_beam_groups if num_beam_groups is not None else 1,
                 diversity_penalty=diversity_penalty,
                 prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
                 output_attentions=output_attentions,

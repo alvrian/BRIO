@@ -69,6 +69,18 @@ def base_setting(args):
     args.num_beams = getattr(args, "num_beams", 4) # number of beams for beam search
     args.dataset_folder = getattr(args, "dataset_folder", None) #non default path to dataset directory
 
+def _build_indonlg_batch(slines, tok, max_src_len):
+    """Builds <s> X </s> [indonesian] formatted, padded input_ids + attention_mask."""
+    pad_id = tok.pad_token_id
+    batch_ids = []
+    for s in slines:
+        ids = tok.encode(s, max_length=max_src_len - 3, truncation=True, add_special_tokens=False)
+        ids = [tok.bos_token_id] + ids + [tok.eos_token_id, LANG_ID]
+        batch_ids.append(ids)
+    max_len = max(len(ids) for ids in batch_ids)
+    input_ids = torch.tensor([ids + [pad_id] * (max_len - len(ids)) for ids in batch_ids])
+    attention_mask = torch.tensor([[1] * len(ids) + [0] * (max_len - len(ids)) for ids in batch_ids])
+    return input_ids, attention_mask
     
 def evaluation(args):
     # load data
@@ -179,20 +191,27 @@ def evaluation(args):
             for sline in tqdm(source, total=total_num):
                 if count % bsz == 0:
                     with torch.no_grad():
-                        dct = tokenizer.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
+                        if args.config == "liputan6":
+                            input_ids, attention_mask = _build_indonlg_batch(slines, tokenizer, args.total_len)
+                            input_ids, attention_mask = input_ids.to(device), attention_mask.to(device)
+                        else:
+                            dct = tokenizer.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
+                            input_ids, attention_mask = dct["input_ids"].to(device), dct["attention_mask"].to(device)
+                        # dct = tokenizer.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
                         gen_max_len = min(args.gen_max_len + 2, 1023)
+                        
                         summaries = model.generate(
-                            input_ids=dct["input_ids"].to(device),
-                            attention_mask=dct["attention_mask"].to(device),
+                            input_ids=input_ids,
+                            attention_mask=attention_mask,
                             max_length=gen_max_len,
-                            min_length=args.gen_min_len + 1,  # +1 from original because we start at step=1
+                            min_length=args.gen_min_len + 1,
                             no_repeat_ngram_size=3,
                             num_beams=args.num_beams,
                             length_penalty=args.length_penalty,
                             early_stopping=True,
-                            # use_cache=False
                         )
-                        dec = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
+                        # dec = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
+                        dec = [tokenizer.decode(g.tolist(), skip_special_tokens=True) for g in summaries]
                     for hypothesis in dec:
                         hypothesis = hypothesis.replace("\n", " ")
                         fout.write(hypothesis + '\n')
@@ -205,18 +224,26 @@ def evaluation(args):
                 count += 1
             if slines != []:
                 with torch.no_grad():
-                    dct = tokenizer.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
+                    # dct = tokenizer.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
+                    if args.config == "liputan6":
+                        input_ids, attention_mask = _build_indonlg_batch(slines, tokenizer, args.total_len)
+                        input_ids, attention_mask = input_ids.to(device), attention_mask.to(device)
+                    else:
+                        dct = tokenizer.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
+                        input_ids, attention_mask = dct["input_ids"].to(device), dct["attention_mask"].to(device)
+                    gen_max_len = min(args.gen_max_len + 2, 1023)
+                    
                     summaries = model.generate(
-                        input_ids=dct["input_ids"].to(device),
-                        attention_mask=dct["attention_mask"].to(device),
-                        max_length=args.gen_max_len + 2,  # +2 from original because we start at step=1 and stop before max_length
-                        min_length=args.gen_min_len + 1,  # +1 from original because we start at step=1
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        max_length=gen_max_len,
+                        min_length=args.gen_min_len + 1,
                         no_repeat_ngram_size=3,
                         num_beams=args.num_beams,
                         length_penalty=args.length_penalty,
                         early_stopping=True,
                     )
-                    dec = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
+                    dec = [tokenizer.decode(g.tolist(), skip_special_tokens=True) for g in summaries]
                     for hypothesis in dec:
                         hypothesis = hypothesis.replace("\n", " ")
                         fout.write(hypothesis + '\n')
@@ -225,7 +252,10 @@ def evaluation(args):
         def process(x):
             return sent_tokenize(" ".join(word_tokenize(x.strip())))
         
-        with open(os.path.join(root_dir, "test.out")) as fout, open(f'./{args.dataset}/test.target') as target:
+        if args.dataset == "liputan6":
+            target_dir_temp = f'./{args.dataset}/{args.datatype}/test.target'
+        
+        with open(os.path.join(root_dir, "test.out")) as fout, open(target_dir_temp) as target:
             for (hyp, ref) in zip(fout, target):
                 hyp = hyp.strip()
                 ref = ref.strip()
@@ -240,18 +270,7 @@ def evaluation(args):
             rougeLsum = rougeLsum / total_num
             print("evaluation rouge1: %.6f, rouge2: %.6f, rougeL: %.6f"%(rouge1, rouge2, rougeLsum))
 
-def _build_indonlg_batch(slines, tok, max_src_len):
-    """Builds <s> X </s> [indonesian] formatted, padded input_ids + attention_mask."""
-    pad_id = tok.pad_token_id
-    batch_ids = []
-    for s in slines:
-        ids = tok.encode(s, max_length=max_src_len - 3, truncation=True, add_special_tokens=False)
-        ids = [tok.bos_token_id] + ids + [tok.eos_token_id, LANG_ID]
-        batch_ids.append(ids)
-    max_len = max(len(ids) for ids in batch_ids)
-    input_ids = torch.tensor([ids + [pad_id] * (max_len - len(ids)) for ids in batch_ids])
-    attention_mask = torch.tensor([[1] * len(ids) + [0] * (max_len - len(ids)) for ids in batch_ids])
-    return input_ids, attention_mask
+
 
 def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
     model.eval()
@@ -753,11 +772,12 @@ def run(rank, args):
             drive_dir = f"{args.checkpoint_save_dir}/master_{args.mle_weight}_{args.rank_weight}" #hardcoded for now, please change later
             os.makedirs(drive_dir, exist_ok=True)
             print("Syncing checkpoints to Google Drive...")
-            for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin"]:
+            for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin", "train_state.json"]:
                 src = os.path.join(recorder.dir, ckpt_name)
                 if os.path.exists(src):
                     _sync_to_drive(src, os.path.join(drive_dir, ckpt_name))
             recorder.print(f"[epoch {epoch+1}] checkpoints synced to {drive_dir}")
+            print("sync complete.")
 
 
 
@@ -766,6 +786,8 @@ def main(args):
     if(args.checkpoint_save_dir is None and args.dataset == "liputan6"):
         print("WARNING: --checkpoint_save_dir is not set. Checkpoints will not be synced to Google Drive.")
         return
+    else:
+        os.makedirs(args.checkpoint_save_dir, exist_ok=True)
     if len(args.gpuid) > 1:
         os.environ['MASTER_ADDR'] = 'localhost'
         os.environ['MASTER_PORT'] = f'{args.port}'
