@@ -629,6 +629,8 @@ def run(rank, args):
         epoch_step = 0
         avg_loss = 0
         batches_to_skip = 0
+        last_best_avg_mle_loss = 0
+        
         if epoch == start_epoch and len(args.model_pt) > 0:
             steps_per_epoch = len(dataloader) // args.accumulate_step
             steps_in_current_epoch = resume_all_step_cnt % steps_per_epoch
@@ -698,6 +700,13 @@ def run(rank, args):
                 recorder.plot("mle_loss", {"loss": avg_mle_loss / args.report_freq}, all_step_cnt)
                 recorder.plot("ranking_loss", {"loss": avg_ranking_loss / args.report_freq}, all_step_cnt)
                 recorder.print()
+                if((avg_mle_loss / args.report_freq) < last_best_avg_mle_loss and args.dataset == "liputan6"):
+                    recorder.print(f"mle loss decreased from {last_best_avg_mle_loss:.6f} to {avg_mle_loss / args.report_freq:.6f}")
+                    if is_mp:
+                        recorder.save(model.module, "model_gen_temp.bin")
+                    else:
+                        recorder.save(model, "model_gen_temp.bin")
+                    last_best_avg_mle_loss = avg_mle_loss / args.report_freq
                 avg_mle_loss, avg_ranking_loss, avg_loss = 0, 0, 0
             del similarity, gold_similarity, loss, mle_loss, ranking_loss, output, probs
 
