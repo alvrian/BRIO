@@ -25,7 +25,7 @@ LANG_ID = 40002  # [indonesian]
 def to_cuda(batch, gpuid):
     for n in batch:
         if n != "data":
-            batch[n] = batch[n].to(gpuid)
+            batch[n] = batch[n].to(gpuid, non_blocking=True)
 
 
 class BrioDataset(Dataset):

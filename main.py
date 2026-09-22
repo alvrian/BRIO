@@ -27,6 +27,7 @@ from config import cnndm_setting, xsum_setting, liputan6_setting
 from indobenchmark import IndoNLGTokenizer
 from tqdm import tqdm
 import shutil
+import threading
 
 logging.getLogger("transformers.tokenization_utils").setLevel(logging.ERROR)
 logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)
@@ -270,8 +271,6 @@ def evaluation(args):
             rougeLsum = rougeLsum / total_num
             print("evaluation rouge1: %.6f, rouge2: %.6f, rougeL: %.6f"%(rouge1, rouge2, rougeLsum))
 
-
-
 def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
     model.eval()
     if args.cuda:
@@ -448,6 +447,7 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
 
 def _sync_to_drive(local_path, drive_path):
     shutil.copyfile(local_path, drive_path)
+    print('Synced %s to %s' % (local_path, drive_path)  )
     
 def run(rank, args):
     if args.config == "cnndm":
@@ -511,9 +511,9 @@ def run(rank, args):
         val_dataloader = DataLoader(val_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn_val, sampler=val_sampler)
         val_gen_dataloader = DataLoader(val_set, batch_size=8, shuffle=False, num_workers=4, collate_fn=collate_fn_val, sampler=val_sampler)
     else:
-        dataloader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=4, collate_fn=collate_fn)
-        val_dataloader = DataLoader(val_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn_val)
-        val_gen_dataloader = DataLoader(val_set, batch_size=8, shuffle=False, num_workers=4, collate_fn=collate_fn_val)
+        dataloader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=4, collate_fn=collate_fn, pin_memory=True)
+        val_dataloader = DataLoader(val_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn_val, pin_memory=True)
+        val_gen_dataloader = DataLoader(val_set, batch_size=8, shuffle=False, num_workers=4, collate_fn=collate_fn_val, pin_memory=True)
     # build models
     print(f'start building model')
     model_path = args.pretrained if args.pretrained is not None else args.model_type
@@ -532,18 +532,12 @@ def run(rank, args):
             print(f"[size-mismatch] tokenizer vocab={tok_vocab_size}, "
                   f"model vocab={model_vocab_size} → resizing embeddings")
             model.model.resize_token_embeddings(tok_vocab_size)
-
-        # Cap total_len to the model's actual max_position_embeddings.
-        # sequences causes position-embedding index overflows during beam search.
         max_pos = model.model.config.max_position_embeddings
         if args.total_len > max_pos:
             print(f"[size-mismatch] total_len={args.total_len} > "
                   f"max_position_embeddings={max_pos} → capping to {max_pos}")
             args.total_len = max_pos
 
-    # if len(args.model_pt) > 0:
-    #     map_loc = f'cuda:{gpuid}' if args.cuda else 'cpu'
-    #     model.load_state_dict(torch.load(os.path.join("./cache", args.model_pt), map_location=map_loc))
     start_epoch = 0
     resume_all_step_cnt = 0
     resume_min_ranking_loss = 100
@@ -593,7 +587,9 @@ def run(rank, args):
     else:
         mle_fn = nn.CrossEntropyLoss(ignore_index=tok.pad_token_id)
     # s_optimizer = optim.Adam(model.parameters())
-    s_optimizer = optim.Adam(model.parameters())
+    # [OPTIMIZATION] Use fused Adam optimizer if on PyTorch 2.0+ for faster weight updates
+    use_fused = True if hasattr(optim.Adam, "fused") and args.cuda else False
+    s_optimizer = optim.Adam(model.parameters(), fused=use_fused)
     if len(args.model_pt) > 0 and s_optimizer_state is not None:
         s_optimizer.load_state_dict(s_optimizer_state)
     if is_master:
@@ -691,33 +687,38 @@ def run(rank, args):
                 # report stats
                 print("id: %d"%id)
                 print(f"similarity: {similarity[:, :10]}")
+                avg_loss_final = avg_loss / args.report_freq
+                avg_ranking_loss_final = avg_ranking_loss / args.report_freq
+                avg_mle_loss_final = avg_mle_loss / args.report_freq
+                
                 if not args.no_gold:
                     print(f"gold similarity: {gold_similarity}")
                 recorder.print("epoch: %d, batch: %d, avg loss: %.6f, avg ranking loss: %.6f, avg mle loss: %.6f"
-                %(epoch+1, epoch_step, avg_loss / args.report_freq, avg_ranking_loss / args.report_freq, avg_mle_loss / args.report_freq))
+                %(epoch+1, epoch_step, avg_loss_final, avg_ranking_loss_final, avg_mle_loss_final))
                 recorder.print(f"learning rate: {lr:.6f}")
-                recorder.plot("loss", {"loss": avg_loss / args.report_freq}, all_step_cnt)
-                recorder.plot("mle_loss", {"loss": avg_mle_loss / args.report_freq}, all_step_cnt)
-                recorder.plot("ranking_loss", {"loss": avg_ranking_loss / args.report_freq}, all_step_cnt)
+                recorder.plot("loss", {"loss": avg_loss_final}, all_step_cnt)
+                recorder.plot("mle_loss", {"loss": avg_mle_loss_final}, all_step_cnt)
+                recorder.plot("ranking_loss", {"loss": avg_ranking_loss_final}, all_step_cnt)
                 recorder.print()
-                if((avg_mle_loss / args.report_freq) < last_best_avg_mle_loss and args.dataset == "liputan6"):
-                    recorder.print(f"mle loss decreased from {last_best_avg_mle_loss:.6f} to {avg_mle_loss / args.report_freq:.6f}")
+                if(avg_mle_loss_final < last_best_avg_mle_loss and args.dataset == "liputan6"):
+                    recorder.print(f"mle loss decreased from {last_best_avg_mle_loss:.6f} to {avg_mle_loss_final:.6f}")
                     if is_mp:
                         recorder.save(model.module, "model_gen_temp.bin")
+                        try:
+                            _sync_to_drive(os.path.join(recorder.dir, "model_gen_temp.bin"), os.path.join(args.checkpoint_save_dir, "model_gen_temp.bin"))
+                        except Exception as e:
+                            print(f"WARNING: failed to sync model_gen_temp.bin to Google Drive: {e}")
                     else:
                         recorder.save(model, "model_gen_temp.bin")
-                    last_best_avg_mle_loss = avg_mle_loss / args.report_freq
+                        try:
+                            _sync_to_drive(os.path.join(recorder.dir, "model_gen_temp.bin"), os.path.join(args.checkpoint_save_dir, "model_gen_temp.bin"))
+                        except Exception as e:
+                            print(f"WARNING: failed to sync model_gen_temp.bin to Google Drive: {e}")
+                    last_best_avg_mle_loss = avg_mle_loss_final
                 avg_mle_loss, avg_ranking_loss, avg_loss = 0, 0, 0
             del similarity, gold_similarity, loss, mle_loss, ranking_loss, output, probs
 
             if all_step_cnt % args.eval_interval == 0 and all_step_cnt != 0 and step_cnt == 0:
-                # if is_master:
-                #     if is_mp:
-                #         recorder.save(model.module, "model_temp.bin")
-                #     else:
-                #         recorder.save(model, "model_temp.bin")
-                #     recorder.print(f"[step {all_step_cnt}] saved model_temp.bin before evaluation")
-                # evaluate the model as a scorer
                 result = test(val_dataloader, val_gen_dataloader, model, args, tok, gpuid, args.do_sample)
                 loss = eval_fn(result["rouge1"], result["rouge2"], result["rougeLsum"])
                 if loss < minimum_ranking_loss and is_master:
@@ -788,8 +789,6 @@ def run(rank, args):
             recorder.print(f"[epoch {epoch+1}] checkpoints synced to {drive_dir}")
             print("sync complete.")
 
-
-
 def main(args):
     # set env
     if(args.checkpoint_save_dir is None and args.dataset == "liputan6"):
@@ -797,6 +796,7 @@ def main(args):
         return
     else:
         os.makedirs(args.checkpoint_save_dir, exist_ok=True)
+        
     if len(args.gpuid) > 1:
         os.environ['MASTER_ADDR'] = 'localhost'
         os.environ['MASTER_PORT'] = f'{args.port}'
@@ -817,8 +817,8 @@ if __name__ ==  "__main__":
     parser.add_argument("--config", default="", type=str, help="config path")
     parser.add_argument("--dataset_folder", default=None, type=str, help="custom path to dataset folder")
     parser.add_argument("--checkpoint_save_dir", default=None, type=str, help="custom path to save checkpoints (for Google Drive sync)")
-
     args = parser.parse_args()
+    
     print("start...")
     if args.cuda is False:
         if args.evaluate:
