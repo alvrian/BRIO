@@ -27,7 +27,7 @@ from config import cnndm_setting, xsum_setting, liputan6_setting
 from indobenchmark import IndoNLGTokenizer
 from tqdm import tqdm
 import shutil
-import threading
+
 
 logging.getLogger("transformers.tokenization_utils").setLevel(logging.ERROR)
 logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)
