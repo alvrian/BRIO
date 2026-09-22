@@ -711,12 +711,12 @@ def run(rank, args):
             del similarity, gold_similarity, loss, mle_loss, ranking_loss, output, probs
 
             if all_step_cnt % args.eval_interval == 0 and all_step_cnt != 0 and step_cnt == 0:
-                if is_master:
-                    if is_mp:
-                        recorder.save(model.module, "model_temp.bin")
-                    else:
-                        recorder.save(model, "model_temp.bin")
-                    recorder.print(f"[step {all_step_cnt}] saved model_temp.bin before evaluation")
+                # if is_master:
+                #     if is_mp:
+                #         recorder.save(model.module, "model_temp.bin")
+                #     else:
+                #         recorder.save(model, "model_temp.bin")
+                #     recorder.print(f"[step {all_step_cnt}] saved model_temp.bin before evaluation")
                 # evaluate the model as a scorer
                 result = test(val_dataloader, val_gen_dataloader, model, args, tok, gpuid, args.do_sample)
                 loss = eval_fn(result["rouge1"], result["rouge2"], result["rougeLsum"])
