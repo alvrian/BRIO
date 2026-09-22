@@ -629,7 +629,7 @@ def run(rank, args):
         epoch_step = 0
         avg_loss = 0
         batches_to_skip = 0
-        last_best_avg_mle_loss = 0
+        last_best_avg_mle_loss = 99
         
         if epoch == start_epoch and len(args.model_pt) > 0:
             steps_per_epoch = len(dataloader) // args.accumulate_step
