@@ -32,7 +32,7 @@ import shutil
 logging.getLogger("transformers.tokenization_utils").setLevel(logging.ERROR)
 logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)
 logging.getLogger("transformers.tokenization_utils_fast").setLevel(logging.ERROR)
-
+torch.set_float32_matmul_precision('high')
 
 def base_setting(args):
     args.batch_size = getattr(args, 'batch_size', 1) # batch size on one gpu, one step
