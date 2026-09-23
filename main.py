@@ -90,31 +90,33 @@ def evaluation(args):
     elif args.config == "xsum":
         xsum_setting(args)
     elif args.config == "liputan6":
-        liputan6_setting(args)   
+        liputan6_setting(args)
     else:
         base_setting(args)
     if args.is_pegasus:
-        tok = PegasusTokenizer.from_pretrained(args.model_type) 
+        tok = PegasusTokenizer.from_pretrained(args.model_type)
     elif args.config == "liputan6":
-        tok = IndoNLGTokenizer.from_pretrained(args.model_type) #indobenchmark/indobart-v2
+        tok = IndoNLGTokenizer.from_pretrained(args.model_type)
         print("change data type to canonical")
-        args.datatype="canonical"
+        args.datatype = "canonical"
     else:
         tok = BartTokenizer.from_pretrained(args.model_type)
-    # collate_fn = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=True)
-    # test_set = BrioDataset(f"./{args.dataset}/{args.datatype}/test", args.model_type, is_test=True, max_len=512,
-    #             is_sorted=False, max_num=args.max_num, is_untok=True, total_len=args.total_len, is_pegasus=args.is_pegasus)
+
     collate_fn = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=True)
     test_set = BrioDataset(f"./{args.dataset}/{args.datatype}/test", args.model_type, is_test=True, max_len=512,
-                is_sorted=False, max_num=args.max_num, is_untok=True, total_len=args.total_len, 
+                is_sorted=False, max_num=args.max_num, is_untok=True, total_len=args.total_len,
                 is_pegasus=args.is_pegasus, is_indonlg=(args.dataset == "liputan6"))
     batch_size = 8
     optimal_workers = min(6, os.cpu_count())
-    dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=optimal_workers, collate_fn=collate_fn, pin_memory=True)
+    dataloader = DataLoader(
+        test_set, batch_size=batch_size, shuffle=False, num_workers=optimal_workers,
+        collate_fn=collate_fn, pin_memory=True,
+        persistent_workers=optimal_workers > 0,
+    )
     # build models
-    
+
     model_path = args.pretrained if args.pretrained is not None else args.model_type
-    if(args.pretrained is not None):
+    if args.pretrained is not None:
         print(f"loading pretrained model from {args.pretrained}")
     model = BRIO(model_path, tok.pad_token_id, args.is_pegasus)
     if args.cuda:
@@ -131,15 +133,17 @@ def evaluation(args):
             os.mkdir(path)
 
     print(model_name)
-    root_dir = "./result/%s"%model_name
+    root_dir = "./result/%s" % model_name
     mkdir(root_dir)
     use_stemmer = False if args.config == "liputan6" else True
     rouge_scorer = RougeScorer(['rouge1', 'rouge2', 'rougeLsum'], use_stemmer=use_stemmer)
 
+    autocast_ctx = lambda: torch.amp.autocast(dtype=torch.bfloat16, device_type="cuda" if args.cuda else "cpu")
+
     if args.do_reranking:
         # evaluate the model as a scorer
-        mkdir("./result/%s/reference_ranking"%model_name)
-        mkdir("./result/%s/candidate_ranking"%model_name)
+        mkdir("./result/%s/reference_ranking" % model_name)
+        mkdir("./result/%s/candidate_ranking" % model_name)
         rouge1, rouge2, rougeLsum = 0, 0, 0
         cnt = 0
         model.scoring_mode()
@@ -148,36 +152,36 @@ def evaluation(args):
                 if args.cuda:
                     to_cuda(batch, args.gpuid[0])
                 samples = batch["data"]
-                output = model(
-                    batch["src_input_ids"],
-                    batch["candidate_ids"],
-                    args.normalize,
-                    args.score_mode,
-                    args.length_penalty,
-                    adding=args.adding
-                )
+                with autocast_ctx():
+                    output = model(
+                        batch["src_input_ids"],
+                        batch["candidate_ids"],
+                        args.normalize,
+                        args.score_mode,
+                        args.length_penalty,
+                        adding=args.adding
+                    )
                 similarity = output['score']
-                similarity = similarity.cpu().numpy()
+                similarity = similarity.cpu().float().numpy()  # bf16 can't go straight to numpy
                 max_ids = similarity.argmax(1)
                 for j in range(similarity.shape[0]):
                     sample = samples[j]
                     sents = sample["candidates"][max_ids[j]][0]
-                    # print(" ".join(sents), file=f_out)
                     score = rouge_scorer.score("\n".join(sample["abstract"]), "\n".join(sents))
                     rouge1 += score["rouge1"].fmeasure
                     rouge2 += score["rouge2"].fmeasure
                     rougeLsum += score["rougeLsum"].fmeasure
-                    with open("./result/%s/candidate_ranking/%d.dec"%(model_name, cnt), "w") as f:
+                    with open("./result/%s/candidate_ranking/%d.dec" % (model_name, cnt), "w") as f:
                         for s in sents:
                             print(s, file=f)
-                    with open("./result/%s/reference_ranking/%d.ref"%(model_name, cnt), "w") as f:
+                    with open("./result/%s/reference_ranking/%d.ref" % (model_name, cnt), "w") as f:
                         for s in sample["abstract"]:
                             print(s, file=f)
                     cnt += 1
         rouge1 = rouge1 / cnt
         rouge2 = rouge2 / cnt
         rougeLsum = rougeLsum / cnt
-        print("ranking rouge1: %.6f, rouge2: %.6f, rougeL: %.6f"%(rouge1, rouge2, rougeLsum))
+        print("ranking rouge1: %.6f, rouge2: %.6f, rougeL: %.6f" % (rouge1, rouge2, rougeLsum))
 
     if args.do_generation:
         # evaluate the model as a generator
@@ -199,20 +203,19 @@ def evaluation(args):
                         else:
                             dct = tokenizer.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
                             input_ids, attention_mask = dct["input_ids"].to(device), dct["attention_mask"].to(device)
-                        # dct = tokenizer.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
                         gen_max_len = min(args.gen_max_len + 2, 1023)
-                        
-                        summaries = model.generate(
-                            input_ids=input_ids,
-                            attention_mask=attention_mask,
-                            max_length=gen_max_len,
-                            min_length=args.gen_min_len + 1,
-                            no_repeat_ngram_size=3,
-                            num_beams=args.num_beams,
-                            length_penalty=args.length_penalty,
-                            early_stopping=True,
-                        )
-                        # dec = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
+
+                        with autocast_ctx():
+                            summaries = model.generate(
+                                input_ids=input_ids,
+                                attention_mask=attention_mask,
+                                max_length=gen_max_len,
+                                min_length=args.gen_min_len + 1,
+                                no_repeat_ngram_size=3,
+                                num_beams=args.num_beams,
+                                length_penalty=args.length_penalty,
+                                early_stopping=True,
+                            )
                         dec = [tokenizer.decode(g.tolist(), skip_special_tokens=True) for g in summaries]
                     for hypothesis in dec:
                         hypothesis = hypothesis.replace("\n", " ")
@@ -226,7 +229,6 @@ def evaluation(args):
                 count += 1
             if slines != []:
                 with torch.no_grad():
-                    # dct = tokenizer.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
                     if args.config == "liputan6":
                         input_ids, attention_mask = _build_indonlg_batch(slines, tokenizer, args.total_len)
                         input_ids, attention_mask = input_ids.to(device), attention_mask.to(device)
@@ -234,17 +236,18 @@ def evaluation(args):
                         dct = tokenizer.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
                         input_ids, attention_mask = dct["input_ids"].to(device), dct["attention_mask"].to(device)
                     gen_max_len = min(args.gen_max_len + 2, 1023)
-                    
-                    summaries = model.generate(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        max_length=gen_max_len,
-                        min_length=args.gen_min_len + 1,
-                        no_repeat_ngram_size=3,
-                        num_beams=args.num_beams,
-                        length_penalty=args.length_penalty,
-                        early_stopping=True,
-                    )
+
+                    with autocast_ctx():
+                        summaries = model.generate(
+                            input_ids=input_ids,
+                            attention_mask=attention_mask,
+                            max_length=gen_max_len,
+                            min_length=args.gen_min_len + 1,
+                            no_repeat_ngram_size=3,
+                            num_beams=args.num_beams,
+                            length_penalty=args.length_penalty,
+                            early_stopping=True,
+                        )
                     dec = [tokenizer.decode(g.tolist(), skip_special_tokens=True) for g in summaries]
                     for hypothesis in dec:
                         hypothesis = hypothesis.replace("\n", " ")
@@ -253,10 +256,10 @@ def evaluation(args):
         # calculate rouge score
         def process(x):
             return sent_tokenize(" ".join(word_tokenize(x.strip())))
-        
+
         if args.dataset == "liputan6":
             target_dir_temp = f'./{args.dataset}/{args.datatype}/test.target'
-        
+
         with open(os.path.join(root_dir, "test.out")) as fout, open(target_dir_temp) as target:
             for (hyp, ref) in zip(fout, target):
                 hyp = hyp.strip()
@@ -270,7 +273,7 @@ def evaluation(args):
             rouge1 = rouge1 / total_num
             rouge2 = rouge2 / total_num
             rougeLsum = rougeLsum / total_num
-            print("evaluation rouge1: %.6f, rouge2: %.6f, rougeL: %.6f"%(rouge1, rouge2, rougeLsum))
+            print("evaluation rouge1: %.6f, rouge2: %.6f, rougeL: %.6f" % (rouge1, rouge2, rougeLsum))
 
 def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
     model.eval()
