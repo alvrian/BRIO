@@ -32,7 +32,7 @@ import shutil
 logging.getLogger("transformers.tokenization_utils").setLevel(logging.ERROR)
 logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)
 logging.getLogger("transformers.tokenization_utils_fast").setLevel(logging.ERROR)
-torch.set_float32_matmul_precision('high')
+
 
 def base_setting(args):
     args.batch_size = getattr(args, 'batch_size', 1) # batch size on one gpu, one step
@@ -108,8 +108,9 @@ def evaluation(args):
     test_set = BrioDataset(f"./{args.dataset}/{args.datatype}/test", args.model_type, is_test=True, max_len=512,
                 is_sorted=False, max_num=args.max_num, is_untok=True, total_len=args.total_len, 
                 is_pegasus=args.is_pegasus, is_indonlg=(args.dataset == "liputan6"))
-    batch_size = 4
-    dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn)
+    batch_size = 8
+    optimal_workers = min(6, os.cpu_count())
+    dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=optimal_workers, collate_fn=collate_fn, pin_memory=True)
     # build models
     
     model_path = args.pretrained if args.pretrained is not None else args.model_type
@@ -291,28 +292,34 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
     else:
         mle_fn = nn.CrossEntropyLoss(ignore_index=tok.pad_token_id)
     _model.scoring_mode()
+    
     with torch.no_grad():
         # scoring
         for (i, batch) in enumerate(dataloader):
             if args.cuda:
                 to_cuda(batch, device)
             samples = batch["data"]
-            output = model(
-                    batch["src_input_ids"], 
-                    batch["candidate_ids"], 
-                    args.normalize, 
-                    args.score_mode, 
-                    args.length_penalty, 
-                    adding=args.adding
-                )
+            with torch.amp.autocast(dtype=torch.bfloat16, device_type="cuda" if args.cuda else "cpu"):
+                output = model(
+                        batch["src_input_ids"], 
+                        batch["candidate_ids"], 
+                        args.normalize, 
+                        args.score_mode, 
+                        args.length_penalty, 
+                        adding=args.adding
+                    )
             similarity, gold_similarity = output['score'], output['summary_score']
             similarity = similarity * args.scale
             gold_similarity = gold_similarity * args.scale
-            similarity = similarity.cpu().numpy()
+            similarity = similarity.cpu().float().numpy()
+            
             probs = output["probs"]  # [bz, seq_len, word_num]
             probs = output["probs"][:, :-1]  # truncate last token
             gold = batch["candidate_ids"][:, 0, 1:]  # shift right
-            mle_loss += mle_fn(probs.transpose(1, 2), gold)
+            
+            batch_mle_loss = mle_fn(probs.transpose(1, 2), gold)
+            mle_loss += batch_mle_loss.item()
+            
             if i % 1000 == 0:
                 print(f"test similarity: {similarity[0]}")
             max_ids = similarity.argmax(1)
@@ -324,24 +331,22 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
                 rouge1 += score["rouge1"].fmeasure
                 rouge2 += score["rouge2"].fmeasure
                 rougeLsum += score["rougeLsum"].fmeasure
+            del output, probs, similarity, gold_similarity, batch_mle_loss
     rouge1 = rouge1 / cnt
     rouge2 = rouge2 / cnt
     rougeLsum = rougeLsum / cnt
     mle_loss = mle_loss / cnt
 
     if len(args.gpuid) > 1:
-        rouge1 = torch.FloatTensor([rouge1]).to(device)
-        dist.all_reduce(rouge1, op=dist.reduce_op.SUM)
-        rouge1 = rouge1.item() / len(args.gpuid)
-        rouge2 = torch.FloatTensor([rouge2]).to(device)
-        dist.all_reduce(rouge2, op=dist.reduce_op.SUM)
-        rouge2 = rouge2.item() / len(args.gpuid)
-        rougeLsum = torch.FloatTensor([rougeLsum]).to(device)
-        dist.all_reduce(rougeLsum, op=dist.reduce_op.SUM)
-        rougeLsum = rougeLsum.item() / len(args.gpuid)
-        dist.all_reduce(mle_loss, op=dist.reduce_op.SUM)
-        mle_loss = mle_loss.item() / len(args.gpuid)
-    
+        # Convert floats back to tensors for distributed reduction
+        metrics_tensor = torch.FloatTensor([rouge1, rouge2, rougeLsum, mle_loss]).to(device)
+        dist.all_reduce(metrics_tensor, op=dist.reduce_op.SUM)
+        metrics_tensor = metrics_tensor / len(args.gpuid)
+        rouge1 = metrics_tensor[0].item()
+        rouge2 = metrics_tensor[1].item()
+        rougeLsum = metrics_tensor[2].item()
+        mle_loss = metrics_tensor[3].item()
+
     cnt = 0
     sample_rouge1, sample_rouge2, sample_rougeLsum = 0, 0, 0
     if do_sample:
@@ -358,26 +363,28 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
 
                 if args.config == "liputan6":
                     input_ids, attention_mask = _build_indonlg_batch(slines, tok, args.total_len)
-                    input_ids = input_ids.to(device)
-                    attention_mask = attention_mask.to(device)
                 else:
                     dct = tok.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
-                    input_ids = dct["input_ids"].to(device)
-                    attention_mask = dct["attention_mask"].to(device)
+                    input_ids = dct["input_ids"]
+                    attention_mask = dct["attention_mask"]  
+                input_ids = input_ids.to(device, non_blocking=True)
+                attention_mask = attention_mask.to(device, non_blocking=True)
+                    
                 max_gen_len = min(args.gen_max_len + 2, 1023)
-                summaries = _model.generate(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    max_length=max_gen_len,
-                    min_length=args.gen_min_len + 1,
-                    no_repeat_ngram_size=3,
-                    num_beams=args.num_beams,
-                    num_return_sequences=1,
-                    length_penalty=args.length_penalty,
-                    early_stopping=True,
-                    num_beam_groups=1,
-                    # use_cache=False
-                )
+                with torch.amp.autocast(dtype=torch.bfloat16, device_type="cuda" if args.cuda else "cpu"):
+                    summaries = _model.generate(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        max_length=max_gen_len,
+                        min_length=args.gen_min_len + 1,
+                        no_repeat_ngram_size=3,
+                        num_beams=args.num_beams,
+                        num_return_sequences=1,
+                        length_penalty=args.length_penalty,
+                        early_stopping=True,
+                        num_beam_groups=1,
+                        # use_cache=False
+                    )
                 dec = [tok.decode(g.tolist() if args.config == "liputan6" else g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
                 for (hypothesis, x) in zip(dec, samples):
                     hypothesis = hypothesis.replace("\n", " ")
@@ -389,51 +396,27 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
                     sample_rouge2 += score["rouge2"].fmeasure
                     sample_rougeLsum += score["rougeLsum"].fmeasure
                     cnt += 1
-        # with torch.no_grad():
-        #     for (i, batch) in enumerate(gen_dataloader):
-        #         if args.cuda:
-        #             to_cuda(batch, device)
-        #         samples = batch["data"]
-        #         slines = [" ".join(x["article_untok"]) for x in samples]
-        #         dct = tok.batch_encode_plus(slines, max_length=args.total_len, return_tensors="pt", pad_to_max_length=True, truncation=True)
-        #         summaries = _model.generate(
-        #             input_ids=dct["input_ids"].to(device),
-        #             attention_mask=dct["attention_mask"].to(device),
-        #             max_length=args.gen_max_len + 2,  # +2 from original because we start at step=1 and stop before max_length
-        #             min_length=args.gen_min_len + 1,  # +1 from original because we start at step=1
-        #             no_repeat_ngram_size=3,
-        #             num_beams=args.num_beams,
-        #             num_return_sequences=1,
-        #             length_penalty=args.length_penalty,
-        #             early_stopping=True,
-        #             num_beam_groups=1,
-        #             # bos_token_id=tok.bos_token_id, #ganti model.py kalau mau dipake
-        #         )
-        #         dec = [tok.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in summaries]
-        #         for (hypothesis, x) in zip(dec, samples):
-        #             hypothesis = hypothesis.replace("\n", " ")
-        #             ref = " ".join(x["abstract_untok"])
-        #             x = process(ref)
-        #             y = process(hypothesis)
-        #             score = rouge_scorer.score("\n".join(x), "\n".join(y))
-        #             sample_rouge1 += score["rouge1"].fmeasure
-        #             sample_rouge2 += score["rouge2"].fmeasure
-        #             sample_rougeLsum += score["rougeLsum"].fmeasure
-        #             cnt += 1
+                del summaries, input_ids, attention_mask
         _model.scoring_mode()
         sample_rouge1 = sample_rouge1 / cnt
         sample_rouge2 = sample_rouge2 / cnt
         sample_rougeLsum = sample_rougeLsum / cnt
         if len(args.gpuid) > 1:
-            sample_rouge1 = torch.FloatTensor([sample_rouge1]).to(device)
-            dist.all_reduce(sample_rouge1, op=dist.reduce_op.SUM)
-            sample_rouge1 = sample_rouge1.item() / len(args.gpuid)
-            sample_rouge2 = torch.FloatTensor([sample_rouge2]).to(device)
-            dist.all_reduce(sample_rouge2, op=dist.reduce_op.SUM)
-            sample_rouge2 = sample_rouge2.item() / len(args.gpuid)
-            sample_rougeLsum = torch.FloatTensor([sample_rougeLsum]).to(device)
-            dist.all_reduce(sample_rougeLsum, op=dist.reduce_op.SUM)
-            sample_rougeLsum = sample_rougeLsum.item() / len(args.gpuid)
+            sample_metrics_tensor = torch.FloatTensor([sample_rouge1, sample_rouge2, sample_rougeLsum]).to(device)
+            dist.all_reduce(sample_metrics_tensor, op=dist.reduce_op.SUM)
+            sample_metrics_tensor = sample_metrics_tensor / len(args.gpuid)
+            sample_rouge1 = sample_metrics_tensor[0].item()
+            sample_rouge2 = sample_metrics_tensor[1].item()
+            sample_rougeLsum = sample_metrics_tensor[2].item()
+            # sample_rouge1 = torch.FloatTensor([sample_rouge1]).to(device)
+            # dist.all_reduce(sample_rouge1, op=dist.reduce_op.SUM)
+            # sample_rouge1 = sample_rouge1.item() / len(args.gpuid)
+            # sample_rouge2 = torch.FloatTensor([sample_rouge2]).to(device)
+            # dist.all_reduce(sample_rouge2, op=dist.reduce_op.SUM)
+            # sample_rouge2 = sample_rouge2.item() / len(args.gpuid)
+            # sample_rougeLsum = torch.FloatTensor([sample_rougeLsum]).to(device)
+            # dist.all_reduce(sample_rougeLsum, op=dist.reduce_op.SUM)
+            # sample_rougeLsum = sample_rougeLsum.item() / len(args.gpuid)
     model.train()
     return {
         "rouge1": rouge1,
@@ -505,15 +488,15 @@ def run(rank, args):
     if is_mp:
         train_sampler = torch.utils.data.distributed.DistributedSampler(
     	 train_set, num_replicas=world_size, rank=rank, shuffle=True)
-        dataloader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn, sampler=train_sampler)
+        dataloader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False, num_workers=6, collate_fn=collate_fn, sampler=train_sampler)
         val_sampler = torch.utils.data.distributed.DistributedSampler(
     	 val_set, num_replicas=world_size, rank=rank)
-        val_dataloader = DataLoader(val_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn_val, sampler=val_sampler)
-        val_gen_dataloader = DataLoader(val_set, batch_size=8, shuffle=False, num_workers=4, collate_fn=collate_fn_val, sampler=val_sampler)
+        val_dataloader = DataLoader(val_set, batch_size=1, shuffle=False, num_workers=6, collate_fn=collate_fn_val, sampler=val_sampler)
+        val_gen_dataloader = DataLoader(val_set, batch_size=8, shuffle=False, num_workers=6, collate_fn=collate_fn_val, sampler=val_sampler)
     else:
-        dataloader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=4, collate_fn=collate_fn, pin_memory=True)
-        val_dataloader = DataLoader(val_set, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn_val, pin_memory=True)
-        val_gen_dataloader = DataLoader(val_set, batch_size=8, shuffle=False, num_workers=4, collate_fn=collate_fn_val, pin_memory=True)
+        dataloader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=6, collate_fn=collate_fn, pin_memory=True)
+        val_dataloader = DataLoader(val_set, batch_size=1, shuffle=False, num_workers=6, collate_fn=collate_fn_val, pin_memory=True)
+        val_gen_dataloader = DataLoader(val_set, batch_size=8, shuffle=False, num_workers=6, collate_fn=collate_fn_val, pin_memory=True)
     # build models
     print(f'start building model')
     model_path = args.pretrained if args.pretrained is not None else args.model_type
@@ -521,10 +504,6 @@ def run(rank, args):
     model = BRIO(model_path, tok.pad_token_id, is_pegasus=args.is_pegasus)
 
     # --- IndoBART size-mismatch guards ---
-    # The tokenizer (IndoNLGTokenizer) may have more special tokens than the
-    # model's embedding table was originally sized for, causing CUDA
-    # out-of-bounds (srcIndex < srcSelectDimSize) on token-ID lookup.
-    # resize_token_embeddings() grows the table safely if needed.
     if args.dataset == "liputan6" and len(args.model_pt) == 0:
         tok_vocab_size = len(tok)
         model_vocab_size = model.model.config.vocab_size
@@ -826,6 +805,7 @@ if __name__ ==  "__main__":
         else:
             main(args)
     else:
+        torch.set_float32_matmul_precision('high')
         if args.evaluate:
             with torch.cuda.device(args.gpuid[0]):
                 evaluation(args)
