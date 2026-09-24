@@ -27,7 +27,7 @@ from config import cnndm_setting, xsum_setting, liputan6_setting
 from indobenchmark import IndoNLGTokenizer
 from tqdm import tqdm
 import shutil
-
+import time
 
 logging.getLogger("transformers.tokenization_utils").setLevel(logging.ERROR)
 logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)
@@ -616,8 +616,10 @@ def run(rank, args):
             epoch_step = steps_in_current_epoch  # Restore the logging counter
             if is_master:
                 print(f"Fast-forwarding: Skipping first {batches_to_skip} batches to resume at step {resume_all_step_cnt}")
-                
+               
         for (i, batch) in enumerate(dataloader):
+            print(f"Processing batch {i+1}/{len(dataloader)} in epoch {epoch+1}/{args.epoch}")
+            start_time = time.perf_counter()
             if epoch == start_epoch and i < batches_to_skip:
                 continue
             if args.cuda:
@@ -701,6 +703,10 @@ def run(rank, args):
             del similarity, gold_similarity, loss, mle_loss, ranking_loss, output, probs
 
             if all_step_cnt % args.eval_interval == 0 and all_step_cnt != 0 and step_cnt == 0:
+                end_time = time.perf_counter()
+                recorder.print(f"Time taken for {args.eval_interval} steps: {end_time - start_time:.2f} seconds")
+                
+                start_time = time.perf_counter()
                 result = test(val_dataloader, val_gen_dataloader, model, args, tok, gpuid, args.do_sample)
                 loss = eval_fn(result["rouge1"], result["rouge2"], result["rougeLsum"])
                 if loss < minimum_ranking_loss and is_master:
@@ -757,14 +763,15 @@ def run(rank, args):
                             else:
                                 print(f"WARNING: {src} does not exist, skipping sync to Google Drive.")
                         recorder.print(f"[step {all_step_cnt}] checkpoints synced to {drive_dir}")
-                        
+                    end_time = time.perf_counter()
+                    recorder.print(f"Time taken for evaluation and checkpointing: {end_time - start_time:.2f} seconds")
         # --- sync checkpoints to Google Drive after each epoch (liputan6 only)
         # please change later
         if args.dataset == "liputan6" and args.checkpoint_save_dir is not None and is_master:
             drive_dir = f"{args.checkpoint_save_dir}/master_{args.mle_weight}_{args.rank_weight}" #hardcoded for now, please change later
             os.makedirs(drive_dir, exist_ok=True)
             print("Syncing checkpoints to Google Drive...")
-            for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin", "train_state.json"]:
+            for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin", "train_state.json", 'log.txt', 'config.txt']:
                 src = os.path.join(recorder.dir, ckpt_name)
                 if os.path.exists(src):
                     _sync_to_drive(src, os.path.join(drive_dir, ckpt_name))
