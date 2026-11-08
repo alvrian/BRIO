@@ -1,0 +1,21 @@
+#1
+src
+Liputan6. com , Jakarta : Kepolisian Daerah Riau bertekad memberantas pelaku penyelundupan kayu yang kerap terjadi di Riau . Selain itu , Polda setempat juga akan memberangus menipulasi dana reboisasi dan iuran hasil hutan . Demikian ditegaskan Kepala Polda Riau Brigadir Jenderal Polisi Johny Yodjana , seusai dilantik menjadi Kapolda Riau oleh Kepala Polri Jenderal Polisi Suroyo Bimantoro , di Jakarta , baru-baru ini . Menurut Johny , pelaku tindak kriminal yang kerap menjarah kayu di Riau akan ditindak tegas . " Saya tak akan pandang bulu , " janji Johny . Selain itu , ia bertekad menyelidiki dugaan manipulasi dana reboisasi dan iuran hasil hutan sebesar Rp 680 miliar yang dilakukan sebuah perusahaan kayu di Riau . Sementara itu , selain melantik Johny Yodyana , Kapolri juga melantik Inspektur Jenderal Polisi Firman Gani menjadi Kapolda Sulawesi Selatan dan Brigjen Pol . Eddy Darnadi menjadi Kapolda Maluku . Selain itu , Bimantoro juga melantik Komisaris Besar Pol . Totok Soenarjo menjadi Kapolda Jambi , Brigjen Pol . Sugiri menjadi Kapolda Lampung , dan Brigjen Pol . Dwi Purwanto menjadi Kapolda Bengkulu . ( ICH/Edi Priyono dan Andi Azril ) .
+tgt
+Kapolda Riau baru Brigjen Pol . Johny Yodjana bertekad memberantas pelaku penyelundupan kayu di Riau . Ia berjanji akan menindak tegas pelaku tanpa pandang bulu .
+
+out 1-1-gen
+kapolda riau brigjen pol . johny yodjana bertekad menyelidiki dugaan manipulasi dana reboisasi dan iuran hasil hutan sebesar rp 680 miliar . polisi juga akan memberangus penipuan .
+base
+kapolda riau brigjen pol . johny yodjana bertekad memberantas pelaku penyelundupan kayu yang kerap terjadi di riau . ia juga akan memberangus menipulasi dana reboisasi dan iuran hasil hutan.
+
+#19
+src
+Liputan6 . com , Jakarta : Sidang Kasus Ngadinah berlangsung singkat di Pengadilan Negeri Tangerang , Rabu ( 16/5 ) pagi . Ngadinah , buruh yang didakwa menghasut massa berunjuk rasa tiba di pengadilan sekitar pukul 9 . 50 WIB [ baca : Ngadinah Masih Dipenjara ] . Ia langsung disambut sekitar 100 orang rekannya yang hendak memberi dukungan . Sidang tesebut kemudian digelar sekitar pukul 10 . 20 WIB . Jaksa penuntut umum Eha Widiastuti meminta majelis hakim yang dipimpim Ahmad Zaeni untuk menolak pembelaan kuasa hukum Ngadinah . Menurut dia , pembelaan kuasa hukum agar terdakwa dibebaskan karena pengadilan tidak berhak mengadili dianggap sangat lemah . Selain itu , jaksa juga menilai bahwa pembelaan kuasa hukum mengenai penggunaan dua pasal yang berbeda adalah sah . Namun , majelis hakim lalu memutuskan memberikan penangguhan penahanan jika kuasa hukum mampu memberikan jaminan . Sidang kasus ini direncanakan berlanjut Rabu mendatang dengan putusan sela . ( HFS/Apriliana dan Gatot Setiawan ) .
+target
+Sidang Kasus Ngadinah berlangsung singkat . Majelis hakim akan menangguhkan penahanan jika kuasa hukum mampu memberi jaminan . Sidang dilanjutkan Rabu mendatang .
+
+out 1-1-gen
+jaksa meminta majelis hakim pn tangerang menolak pembelaan kuasa hukum buruh yang didakwa menghasut massa . kuasa hukum diminta dibebaskan karena pengadilan tidak berhak mengadili dinilai lemah .
+base
+jaksa penuntut umum eha widiastuti meminta majelis hakim yang dipimpim ahmad zaeni menolak pembelaan kuasa hukum ngadinah . kuasa hukum diminta dibebaskan karena pengadilan tidak berhak mengadili dianggap lemah .

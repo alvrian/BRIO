@@ -98,7 +98,7 @@ def evaluation(args):
     elif args.config == "liputan6":
         tok = IndoNLGTokenizer.from_pretrained(args.model_type)
         print("change data type to canonical")
-        args.datatype = "canonical"
+        # args.datatype = "canonical"
     else:
         tok = BartTokenizer.from_pretrained(args.model_type)
 
@@ -618,8 +618,8 @@ def run(rank, args):
                 print(f"Fast-forwarding: Skipping first {batches_to_skip} batches to resume at step {resume_all_step_cnt}")
                
         for (i, batch) in enumerate(dataloader):
-            print(f"Processing batch {i+1}/{len(dataloader)} in epoch {epoch+1}/{args.epoch}")
-            start_time = time.perf_counter()
+            # print(f"Processing batch {i+1}/{len(dataloader)} in epoch {epoch+1}/{args.epoch}")
+            # start_time = time.perf_counter()
             if epoch == start_epoch and i < batches_to_skip:
                 continue
             if args.cuda:
