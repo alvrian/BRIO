@@ -97,7 +97,7 @@ def evaluation(args):
         tok = PegasusTokenizer.from_pretrained(args.model_type)
     elif args.config == "liputan6":
         tok = IndoNLGTokenizer.from_pretrained(args.model_type)
-        print("change data type to canonical")
+        #print("change data type to canonical")
         # args.datatype = "canonical"
     else:
         tok = BartTokenizer.from_pretrained(args.model_type)
@@ -704,7 +704,7 @@ def run(rank, args):
 
             if all_step_cnt % args.eval_interval == 0 and all_step_cnt != 0 and step_cnt == 0:
                 end_time = time.perf_counter()
-                recorder.print(f"Time taken for {args.eval_interval} steps: {end_time - start_time:.2f} seconds")
+                #recorder.print(f"Time taken for {args.eval_interval} steps: {end_time - start_time:.2f} seconds")
                 
                 start_time = time.perf_counter()
                 result = test(val_dataloader, val_gen_dataloader, model, args, tok, gpuid, args.do_sample)
