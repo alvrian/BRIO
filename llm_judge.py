@@ -13,6 +13,7 @@ quota runs out you just run the same command again the next day and it continues
 
 Files written to <data_dir>/judge/:
   scores.jsonl / pairwise.jsonl   raw answers (also the resume cache, do not delete)
+  blocked.jsonl                   articles refused by Gemini's content filter (excluded for all systems)
   scores.csv / pairwise.csv       the same as tables
   summary.txt                     mean scores per system and the win counts
   human_eval_sheet.csv            blind sheet for human raters (with --human_n)
@@ -116,6 +117,10 @@ class BadAnswer(Exception):
     """Raised when the model's answer cannot be used."""
 
 
+class Blocked(Exception):
+    """Raised when Gemini's content filter refuses the article. Retrying does not help."""
+
+
 REQUESTS_MADE = 0
 
 
@@ -158,9 +163,21 @@ def call_gemini(prompt, args):
         if status == 200:
             time.sleep(args.sleep)
             try:
-                return r.json()["candidates"][0]["content"]["parts"][0]["text"]
-            except (KeyError, IndexError, ValueError):
-                raise BadAnswer("no text in the response: %s" % text[:300])
+                data = r.json()
+            except ValueError:
+                raise BadAnswer("response is not JSON: %s" % text[:200])
+            # the content filter refused the prompt (for example a crime news article)
+            reason = (data.get("promptFeedback") or {}).get("blockReason")
+            if reason:
+                raise Blocked("prompt blocked: %s" % reason)
+            candidate = (data.get("candidates") or [{}])[0]
+            try:
+                return candidate["content"]["parts"][0]["text"]
+            except (KeyError, IndexError, TypeError):
+                finish = candidate.get("finishReason", "")
+                if finish in ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "RECITATION", "SPII"):
+                    raise Blocked("answer blocked: %s" % finish)
+                raise BadAnswer("no text in the response: %s" % text[:200])
         if status in (0, 429, 500, 502, 503, 504) and attempt < len(waits):
             print("  HTTP %s, waiting %ds then retrying" % (status, waits[attempt]))
             time.sleep(waits[attempt])
@@ -252,9 +269,63 @@ def load_data(args):
     return rows, list(summaries.keys())
 
 
-def run_judging(args, rows, systems, pairs, scores_path, pairwise_path):
+def judge_article(args, row, systems, pairs, scores, pairwise, scores_path, pairwise_path):
+    """All requests for one article: score each system, then the head-to-head comparisons."""
+    for system in systems:
+        key = (row["id"], system)
+        if key in scores:
+            continue
+        summary = row["summaries"][system]
+        # identical summary from another system on the same article: reuse its scores
+        same = [scores[(row["id"], s)] for s in systems
+                if (row["id"], s) in scores and scores[(row["id"], s)]["summary"] == summary]
+        try:
+            if same:
+                result = dict((c, same[0][c]) for c in CRITERIA + ["unsupported_claims", "reasoning"])
+            else:
+                result = ask(SCORE_PROMPT.format(article=row["article"], summary=summary), args, check_scores)
+        except BadAnswer as e:
+            print("  skipped article %d / %s: %s (will be retried on the next run)" % (row["id"], system, e))
+            continue
+        record = {"id": row["id"], "system": system, "summary": summary, "judge_model": args.model}
+        record.update(result)
+        scores[key] = record
+        append_jsonl(scores_path, record)
+
+    for (a, b) in pairs:
+        key = (row["id"], a, b)
+        if key in pairwise:
+            continue
+        sum_a, sum_b = row["summaries"][a], row["summaries"][b]
+        record = {"id": row["id"], "system_1": a, "system_2": b, "judge_model": args.model}
+        if sum_a == sum_b:
+            record.update({"winner": "tie", "shown_first": "", "reasoning": "identical summaries, no request sent"})
+        else:
+            # random order per article so the judge cannot learn which system is A
+            swap = random.Random(args.seed * 1000003 + row["id"]).random() < 0.5
+            first, second = (b, a) if swap else (a, b)
+            prompt = PAIR_PROMPT.format(article=row["article"], summary_a=row["summaries"][first],
+                                        summary_b=row["summaries"][second])
+            try:
+                result = ask(prompt, args, check_winner)
+            except BadAnswer as e:
+                print("  skipped comparison on article %d: %s (will be retried on the next run)" % (row["id"], e))
+                continue
+            winner = {"a": first, "b": second, "tie": "tie"}[result["winner"]]
+            record.update({"winner": winner, "shown_first": first, "reasoning": result["reasoning"]})
+        pairwise[key] = record
+        append_jsonl(pairwise_path, record)
+
+
+def run_judging(args, rows, systems, pairs, scores_path, pairwise_path, blocked_path):
     scores = dict(((r["id"], r["system"]), r) for r in load_jsonl(scores_path))
     pairwise = dict(((r["id"], r["system_1"], r["system_2"]), r) for r in load_jsonl(pairwise_path))
+
+    # articles that Gemini's content filter refused on an earlier run are not sent again
+    blocked = dict((r["id"], r) for r in load_jsonl(blocked_path))
+    rows = [row for row in rows if row["id"] not in blocked]
+    if blocked:
+        print("Skipping %d article(s) blocked by Gemini's content filter: %s" % (len(blocked), sorted(blocked)))
 
     todo_scores = sum(1 for row in rows for s in systems if (row["id"], s) not in scores)
     todo_pairs = sum(1 for row in rows for (a, b) in pairs if (row["id"], a, b) not in pairwise)
@@ -269,51 +340,12 @@ def run_judging(args, rows, systems, pairs, scores_path, pairwise_path):
 
     try:
         for n, row in enumerate(rows):
-            for system in systems:
-                key = (row["id"], system)
-                if key in scores:
-                    continue
-                summary = row["summaries"][system]
-                # identical summary from another system on the same article: reuse its scores
-                same = [scores[(row["id"], s)] for s in systems
-                        if (row["id"], s) in scores and scores[(row["id"], s)]["summary"] == summary]
-                try:
-                    if same:
-                        result = dict((c, same[0][c]) for c in CRITERIA + ["unsupported_claims", "reasoning"])
-                    else:
-                        result = ask(SCORE_PROMPT.format(article=row["article"], summary=summary), args, check_scores)
-                except BadAnswer as e:
-                    print("  skipped article %d / %s: %s (will be retried on the next run)" % (row["id"], system, e))
-                    continue
-                record = {"id": row["id"], "system": system, "summary": summary, "judge_model": args.model}
-                record.update(result)
-                scores[key] = record
-                append_jsonl(scores_path, record)
-
-            for (a, b) in pairs:
-                key = (row["id"], a, b)
-                if key in pairwise:
-                    continue
-                sum_a, sum_b = row["summaries"][a], row["summaries"][b]
-                record = {"id": row["id"], "system_1": a, "system_2": b, "judge_model": args.model}
-                if sum_a == sum_b:
-                    record.update({"winner": "tie", "shown_first": "", "reasoning": "identical summaries, no request sent"})
-                else:
-                    # random order per article so the judge cannot learn which system is A
-                    swap = random.Random(args.seed * 1000003 + row["id"]).random() < 0.5
-                    first, second = (b, a) if swap else (a, b)
-                    prompt = PAIR_PROMPT.format(article=row["article"], summary_a=row["summaries"][first],
-                                                summary_b=row["summaries"][second])
-                    try:
-                        result = ask(prompt, args, check_winner)
-                    except BadAnswer as e:
-                        print("  skipped comparison on article %d: %s (will be retried on the next run)" % (row["id"], e))
-                        continue
-                    winner = {"a": first, "b": second, "tie": "tie"}[result["winner"]]
-                    record.update({"winner": winner, "shown_first": first, "reasoning": result["reasoning"]})
-                pairwise[key] = record
-                append_jsonl(pairwise_path, record)
-
+            try:
+                judge_article(args, row, systems, pairs, scores, pairwise, scores_path, pairwise_path)
+            except Blocked as e:
+                # the filter reacts to the article itself, so drop the whole article for every system
+                print("  article %d blocked by Gemini's content filter (%s), excluded from the evaluation" % (row["id"], e))
+                append_jsonl(blocked_path, {"id": row["id"], "reason": str(e), "judge_model": args.model})
             if (n + 1) % 10 == 0:
                 print("%d / %d articles done, %d requests used" % (n + 1, len(rows), REQUESTS_MADE))
         print("All done. Requests used in this run: %d" % REQUESTS_MADE)
@@ -331,11 +363,16 @@ def sign_test_p(wins, losses):
     return min(1.0, p)
 
 
-def summarise(args, systems, pairs, out_dir, scores_path, pairwise_path):
+def summarise(args, systems, pairs, out_dir, scores_path, pairwise_path, blocked_path):
     import pandas as pd
 
     lines = []
-    score_rows = load_jsonl(scores_path)
+    # blocked articles are left out for every system, so all systems are compared on the same articles
+    blocked_ids = set(r["id"] for r in load_jsonl(blocked_path))
+    if blocked_ids:
+        lines.append("Excluded: %d article(s) refused by the judge's content filter, ids %s\n"
+                     % (len(blocked_ids), sorted(blocked_ids)))
+    score_rows = [r for r in load_jsonl(scores_path) if r["id"] not in blocked_ids]
     if score_rows:
         scores = pd.DataFrame(score_rows)
         scores["n_unsupported"] = scores["unsupported_claims"].apply(len)
@@ -367,7 +404,7 @@ def summarise(args, systems, pairs, out_dir, scores_path, pairwise_path):
                     pass
                 lines.append(text)
 
-    pair_rows = load_jsonl(pairwise_path)
+    pair_rows = [r for r in load_jsonl(pairwise_path) if r["id"] not in blocked_ids]
     if pair_rows:
         pairwise = pd.DataFrame(pair_rows)
         pairwise.to_csv(os.path.join(out_dir, "pairwise.csv"), index=False, encoding="utf-8-sig")
@@ -438,6 +475,7 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     scores_path = os.path.join(out_dir, "scores.jsonl")
     pairwise_path = os.path.join(out_dir, "pairwise.jsonl")
+    blocked_path = os.path.join(out_dir, "blocked.jsonl")
 
     if args.human_n > 0:
         write_human_sheet(args, rows, systems, out_dir)
@@ -446,10 +484,10 @@ def main():
         args.api_key = os.environ.get("GEMINI_API_KEY", "")
         if not args.api_key and not args.dry_run:
             parser.error("set the GEMINI_API_KEY environment variable first")
-        run_judging(args, rows, systems, pairs, scores_path, pairwise_path)
+        run_judging(args, rows, systems, pairs, scores_path, pairwise_path, blocked_path)
 
     if not args.dry_run:
-        summarise(args, systems, pairs, out_dir, scores_path, pairwise_path)
+        summarise(args, systems, pairs, out_dir, scores_path, pairwise_path, blocked_path)
 
 
 if __name__ == "__main__":
