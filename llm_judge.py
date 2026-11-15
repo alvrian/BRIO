@@ -208,6 +208,9 @@ def ask(prompt, args, check):
     for _ in range(2):
         try:
             answer = parse_json(call_gemini(prompt, args))
+            # the model sometimes wraps the object in a list: [{...}]
+            if isinstance(answer, list) and len(answer) == 1:
+                answer = answer[0]
             if not isinstance(answer, dict):
                 raise BadAnswer("answer is not a JSON object")
             return check(answer)
@@ -395,7 +398,9 @@ def summarise(args, systems, pairs, out_dir, scores_path, pairwise_path, blocked
             lines.append("\nPaired difference %s minus %s (n=%d articles)" % (b, a, len(wide)))
             for c in CRITERIA:
                 diff = wide[c][b] - wide[c][a]
-                text = "  %-12s mean diff %+.3f" % (c, diff.mean())
+                higher, lower = int((diff > 0).sum()), int((diff < 0).sum())
+                text = "  %-12s mean diff %+.3f   %s higher on %d, lower on %d articles, sign test p = %.4f" % (
+                    c, diff.mean(), b, higher, lower, sign_test_p(higher, lower))
                 try:
                     from scipy.stats import wilcoxon
                     if (diff != 0).any():
@@ -403,6 +408,11 @@ def summarise(args, systems, pairs, out_dir, scores_path, pairwise_path, blocked
                 except ImportError:
                     pass
                 lines.append(text)
+            # unsupported statements: articles where only one of the two systems has one (exact McNemar test)
+            flag = scores[scores["system"].isin([a, b])].pivot(index="id", columns="system", values="n_unsupported").dropna() > 0
+            only_a, only_b = int((flag[a] & ~flag[b]).sum()), int((flag[b] & ~flag[a]).sum())
+            lines.append("  unsupported statement only in %s: %d, only in %s: %d, in both: %d   McNemar p = %.4f"
+                         % (a, only_a, b, only_b, int((flag[a] & flag[b]).sum()), sign_test_p(only_a, only_b)))
 
     pair_rows = [r for r in load_jsonl(pairwise_path) if r["id"] not in blocked_ids]
     if pair_rows:
