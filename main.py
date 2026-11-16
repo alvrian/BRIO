@@ -486,6 +486,11 @@ def run(rank, args):
         is_pegasus=args.is_pegasus, is_indonlg=(args.dataset == "liputan6")
     )
     
+    if len(train_set) == 0 or len(val_set) == 0:
+        raise RuntimeError(
+            f"No data found: {train_path} has {len(train_set)} json files and {val_path} has {len(val_set)}. "
+            "Run preprocess.py first, or restore the preprocessed dataset zip into this folder."
+        )
     print(f'done extracting data for {args.dataset} for BRIO')
     #is_mp -> multi gpu
     if is_mp:
@@ -793,6 +798,12 @@ def main(args):
     else:
         run(0, args)
 
+def int_or_float(text):
+    # "1" stays the integer 1, so the checkpoint folder is still named master_1_1 and not master_1.0_1.0
+    value = float(text)
+    return int(value) if value.is_integer() else value
+
+
 if __name__ ==  "__main__":
     parser = argparse.ArgumentParser(description='Parameters')
     parser.add_argument("--cuda", action="store_true", help="use cuda")
@@ -811,11 +822,13 @@ if __name__ ==  "__main__":
     parser.add_argument("--max_num", default=None, type=int, help="number of candidate summaries used per article")
     parser.add_argument("--batch_size", default=None, type=int, help="batch size on one gpu")
     parser.add_argument("--accumulate_step", default=None, type=int, help="gradient accumulation steps")
+    parser.add_argument("--mle_weight", default=None, type=int_or_float, help="weight of the mle loss")
+    parser.add_argument("--rank_weight", default=None, type=int_or_float, help="weight of the ranking (contrastive) loss")
     args = parser.parse_args()
 
     # config.py only fills in values that are missing from args, so remove the options
     # that were not given on the command line
-    for name in ["seed", "max_num", "batch_size", "accumulate_step"]:
+    for name in ["seed", "max_num", "batch_size", "accumulate_step", "mle_weight", "rank_weight"]:
         if getattr(args, name) is None:
             delattr(args, name)
     

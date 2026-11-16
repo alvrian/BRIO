@@ -8,6 +8,7 @@ from typing import List
 import os
 import shutil
 import json
+import time
 
 def generate_summaries_cnndm(args):
     device = f"cuda:{args.gpuid}"
@@ -170,8 +171,12 @@ def _build_batch(slines, tokenizer, max_src_len=1024):
     return input_ids, attention_mask
 
 
-def _generate_candidates(slines, tokenizer, model, device, max_length, min_length, num_cands, diversity_penalty, use_cache=None):
+def _generate_candidates(slines, tokenizer, model, device, max_length, min_length, num_cands, diversity_penalty, use_cache=False):
     """Diverse beam search. Returns one list of num_cands candidate summaries per source line."""
+    # The decoder cache is off by default. With transformers 4.46.3 cached generation for this model fails
+    # with a CUDA "device-side assert" (index out of range while the cache positions are updated), the same
+    # MBart cache problem that main.py and compare_and_contrast.py avoid with use_cache=False.
+    extra = {} if use_cache else {"use_cache": False}
     with torch.no_grad():
         input_ids, attention_mask = _build_batch(slines, tokenizer, max_src_len=1024)
         summaries = model.generate(
@@ -187,7 +192,7 @@ def _generate_candidates(slines, tokenizer, model, device, max_length, min_lengt
             no_repeat_ngram_size=3,
             length_penalty=1.0,
             early_stopping=True,
-            use_cache=use_cache,
+            **extra,
         )
         dec = [tokenizer.decode(g.tolist(), skip_special_tokens=True).replace("\n", " ") for g in summaries]
     return [dec[i * num_cands:(i + 1) * num_cands] for i in range(len(slines))]
@@ -311,11 +316,22 @@ def generate_summaries_liputan6(args):
     remaining_lines = [(s if len(s) > 0 else " ") for s in remaining_lines]
 
     def generate_fn(lines, penalty):
-        return _generate_candidates(lines, tokenizer, model, device, max_length, min_length, num_cands, penalty,
-                                    use_cache=False if args.disable_cache else None)
+        # If the GPU runs out of memory, the batch is split in half and tried again,
+        # so one batch of long articles does not stop the whole run.
+        try:
+            return _generate_candidates(lines, tokenizer, model, device, max_length, min_length, num_cands, penalty,
+                                        use_cache=args.use_cache)
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            if len(lines) == 1:
+                raise RuntimeError("Out of GPU memory even with one article per batch.")
+            half = len(lines) // 2
+            print(f"  out of GPU memory with {len(lines)} articles, splitting the batch", flush=True)
+            return generate_fn(lines[:half], penalty) + generate_fn(lines[half:], penalty)
 
     print(f"Generating {num_cands} candidates per article, diversity penalty {args.diversity_penalty}, batch size {bsz}.")
     fout = open(local_tgt_dir, 'a')  # append locally
+    start_time = time.time()
     batch_count = 0
     retried = 0
     not_fixed = 0
@@ -345,6 +361,13 @@ def generate_summaries_liputan6(args):
             os.fsync(fout.fileno())  # force the OS to commit local writes to disk immediately
 
             batch_count += 1
+            if batch_count % 25 == 0 or batch_count == 3:
+                done_now = min(i + bsz, len(remaining_lines))
+                per_article = (time.time() - start_time) / done_now
+                hours_left = per_article * (len(remaining_lines) - done_now) / 3600
+                peak_gb = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else 0
+                print(f"  {per_article:.2f} s per article, about {hours_left:.1f} h left for this split, "
+                      f"peak GPU memory {peak_gb:.1f} GB", flush=True)
             if batch_count % args.sync_every == 0:
                 _sync_to_drive(local_tgt_dir, args.tgt_dir)
                 print(f"  synced to Drive at batch {batch_count}")
@@ -378,7 +401,8 @@ if __name__ == "__main__":
                         help="regenerate an article when more than this many of its candidates have ROUGE = 0")
     parser.add_argument("--no_rouge_check", action="store_true", help="skip the ROUGE = 0 check and the regeneration")
     parser.add_argument("--sync_every", type=int, default=100, help="copy the output file to --tgt_dir every N batches")
-    parser.add_argument("--disable_cache", action="store_true", help="generate with use_cache=False (slower, for troubleshooting)")
+    parser.add_argument("--use_cache", action="store_true",
+                        help="turn the decoder cache on (faster, but fails with a CUDA device-side assert on transformers 4.46.3)")
     args = parser.parse_args()
 
     if args.src_dir is None or args.tgt_dir is None:
