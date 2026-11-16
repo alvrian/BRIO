@@ -7,6 +7,7 @@ import argparse
 from typing import List
 import os
 import shutil
+import json
 
 def generate_summaries_cnndm(args):
     device = f"cuda:{args.gpuid}"
@@ -133,9 +134,25 @@ def _patched_decode(self, *args, **kwargs):
 IndoNLGTokenizer.decode = _patched_decode
 
 LANG_ID = 40002  # [indonesian]
-NUM_CANDIDATES = 16
 LOCAL_TMP_DIR = "/content/_gen_candidate_tmp"  # fast local disk, no network dependency
-SYNC_EVERY_N_BATCHES = 100  # copy local file -> Drive every N batches 
+
+# When an article has too many candidates with ROUGE = 0, its candidates are generated again
+# with the diversity penalty multiplied by these factors, one after another.
+RETRY_PENALTY_FACTORS = [0.5, 0.25, 0.1]
+
+_rouge1_scorer = None
+
+
+def _count_zero_rouge(cands, reference):
+    """Number of candidates with ROUGE = 0 against the reference summary.
+    A candidate that shares no word with the reference has ROUGE-1 = 0, and then
+    ROUGE-2 and ROUGE-L are 0 too, so checking ROUGE-1 is enough.
+    Same scorer settings as preprocess.py."""
+    global _rouge1_scorer
+    if _rouge1_scorer is None:
+        from compare_mt.rouge.rouge_scorer import RougeScorer
+        _rouge1_scorer = RougeScorer(['rouge1'], use_stemmer=True)
+    return sum(1 for c in cands if _rouge1_scorer.score(reference, c)['rouge1'].fmeasure == 0)
 
 
 def _build_batch(slines, tokenizer, max_src_len=1024):
@@ -153,25 +170,61 @@ def _build_batch(slines, tokenizer, max_src_len=1024):
     return input_ids, attention_mask
 
 
-def _generate_and_write(slines, tokenizer, model, device, fout, max_length, min_length):
+def _generate_candidates(slines, tokenizer, model, device, max_length, min_length, num_cands, diversity_penalty, use_cache=None):
+    """Diverse beam search. Returns one list of num_cands candidate summaries per source line."""
     with torch.no_grad():
         input_ids, attention_mask = _build_batch(slines, tokenizer, max_src_len=1024)
         summaries = model.generate(
             input_ids=input_ids.to(device),
             attention_mask=attention_mask.to(device),
-            num_return_sequences=NUM_CANDIDATES, num_beam_groups=NUM_CANDIDATES, diversity_penalty=0.5, num_beams=NUM_CANDIDATES,
+            # IndoBART decoder format is [indonesian] <s> Y </s>: start with the language token and
+            # force <s> as the next token, the same way main.py and compare_and_contrast.py generate.
+            decoder_start_token_id=LANG_ID,
+            forced_bos_token_id=model.config.bos_token_id,
+            num_return_sequences=num_cands, num_beam_groups=num_cands, diversity_penalty=diversity_penalty, num_beams=num_cands,
             max_length=max_length + 2,
             min_length=min_length + 1,
             no_repeat_ngram_size=3,
             length_penalty=1.0,
             early_stopping=True,
+            use_cache=use_cache,
         )
-        dec = [tokenizer.decode(g.tolist(), skip_special_tokens=True) for g in summaries]
-    for hypothesis in dec:
-        hypothesis = hypothesis.replace("\n", " ")
-        fout.write(hypothesis + '\n')
-    fout.flush()
-    os.fsync(fout.fileno())  # force the OS to commit local writes to disk immediately
+        dec = [tokenizer.decode(g.tolist(), skip_special_tokens=True).replace("\n", " ") for g in summaries]
+    return [dec[i * num_cands:(i + 1) * num_cands] for i in range(len(slines))]
+
+
+def _regenerate_bad_articles(slines, refs, cands, generate_fn, base_penalty, max_zero_rouge, first_index):
+    """Checks every article of a batch. If more than max_zero_rouge of its candidates have ROUGE = 0
+    (gibberish), the candidates of that article are generated again, alone, with a lower diversity penalty.
+    The attempt with the fewest ROUGE = 0 candidates is kept.
+    generate_fn(list_of_source_lines, diversity_penalty) returns the candidates.
+    Returns a list of log records, one per article that needed a retry."""
+    records = []
+    for k in range(len(slines)):
+        zeros = _count_zero_rouge(cands[k], refs[k])
+        if zeros <= max_zero_rouge:
+            continue
+        first_zeros = zeros
+        used_penalty = base_penalty
+        attempts = 0
+        for factor in RETRY_PENALTY_FACTORS:
+            penalty = base_penalty * factor
+            attempts += 1
+            new_cands = generate_fn([slines[k]], penalty)[0]
+            new_zeros = _count_zero_rouge(new_cands, refs[k])
+            if new_zeros < zeros:
+                cands[k], zeros, used_penalty = new_cands, new_zeros, penalty
+            if zeros <= max_zero_rouge:
+                break
+        records.append({
+            "article": first_index + k,
+            "zero_rouge_first": first_zeros,
+            "zero_rouge_final": zeros,
+            "attempts": attempts,
+            "diversity_penalty_used": used_penalty,
+            "fixed": zeros <= max_zero_rouge,
+        })
+    return records
 
 
 def _sync_to_drive(local_path, drive_path):
@@ -184,7 +237,8 @@ def generate_summaries_liputan6(args):
     output file if one already exists (e.g. after a Colab session timeout).
     """
     device = f"cuda:{args.gpuid}" if torch.cuda.is_available() else "cpu"
-    mname = "/content/drive/MyDrive/indobart-liputan6-finetuned"
+    mname = args.model_dir
+    num_cands = args.num_cands
 
     if not os.path.isdir("/content/drive/MyDrive"):
         raise RuntimeError(
@@ -194,6 +248,12 @@ def generate_summaries_liputan6(args):
     if not os.path.isdir(mname):
         raise RuntimeError(f"Checkpoint directory not found: {mname}")
 
+    # reference summaries, needed for the ROUGE = 0 check
+    check_rouge = not args.no_rouge_check
+    ref_path = args.ref_dir if args.ref_dir else args.src_dir.replace(".source", ".target")
+    if check_rouge and not os.path.exists(ref_path):
+        raise RuntimeError(f"Reference file not found: {ref_path} (give --ref_dir, or --no_rouge_check to skip the check)")
+
     model = AutoModelForSeq2SeqLM.from_pretrained(mname).to(device)
     model.config.decoder_start_token_id = LANG_ID
     model.eval()
@@ -202,22 +262,26 @@ def generate_summaries_liputan6(args):
 
     max_length = 100
     min_length = 20
-    bsz = 16
+    bsz = args.batch_size
 
     os.makedirs(LOCAL_TMP_DIR, exist_ok=True)
     local_tgt_dir = os.path.join(LOCAL_TMP_DIR, os.path.basename(args.tgt_dir))
+    log_path = args.tgt_dir + ".regen_log.jsonl"
 
     # --- resume support: the Drive copy is the only data that reliably survived a disconnect ---
     if os.path.exists(args.tgt_dir) and os.path.getsize(args.tgt_dir) > 0:
         print("Found existing synced output on Drive — copying it locally to resume from.")
         shutil.copyfile(args.tgt_dir, local_tgt_dir)
+    elif os.path.exists(local_tgt_dir):
+        # a local temp file with the same name left by another run (other split folder or settings)
+        os.remove(local_tgt_dir)
 
     already_done_articles = 0
     if os.path.exists(local_tgt_dir) and os.path.getsize(local_tgt_dir) > 0:
         with open(local_tgt_dir, 'r') as f:
             existing_lines = f.readlines()
-        complete_groups = len(existing_lines) // NUM_CANDIDATES
-        keep_lines = complete_groups * NUM_CANDIDATES
+        complete_groups = len(existing_lines) // num_cands
+        keep_lines = complete_groups * num_cands
         if keep_lines != len(existing_lines):
             print(f"Trimming {len(existing_lines) - keep_lines} incomplete lines from a partial last group.")
             with open(local_tgt_dir, 'w') as f:
@@ -227,6 +291,12 @@ def generate_summaries_liputan6(args):
 
     with open(args.src_dir) as source:
         all_source_lines = [line.strip().lower() for line in source]
+    all_ref_lines = None
+    if check_rouge:
+        with open(ref_path) as ref:
+            all_ref_lines = [line.strip().lower() for line in ref]
+        if len(all_ref_lines) != len(all_source_lines):
+            raise RuntimeError(f"{args.src_dir} has {len(all_source_lines)} lines but {ref_path} has {len(all_ref_lines)}")
 
     if args.num_samples is not None:
         all_source_lines = all_source_lines[:args.num_samples]
@@ -240,25 +310,51 @@ def generate_summaries_liputan6(args):
 
     remaining_lines = [(s if len(s) > 0 else " ") for s in remaining_lines]
 
+    def generate_fn(lines, penalty):
+        return _generate_candidates(lines, tokenizer, model, device, max_length, min_length, num_cands, penalty,
+                                    use_cache=False if args.disable_cache else None)
+
+    print(f"Generating {num_cands} candidates per article, diversity penalty {args.diversity_penalty}, batch size {bsz}.")
     fout = open(local_tgt_dir, 'a')  # append locally
     batch_count = 0
+    retried = 0
+    not_fixed = 0
     try:
         for i in range(0, len(remaining_lines), bsz):
             batch = remaining_lines[i:i + bsz]
             processed_so_far = already_done_articles + i
             if processed_so_far % 100 < bsz:
                 print(processed_so_far, flush=True)
-            _generate_and_write(batch, tokenizer, model, device, fout, max_length, min_length)
+            cands = generate_fn(batch, args.diversity_penalty)
+
+            if check_rouge:
+                refs = all_ref_lines[processed_so_far:processed_so_far + len(batch)]
+                records = _regenerate_bad_articles(batch, refs, cands, generate_fn, args.diversity_penalty,
+                                                   args.max_zero_rouge, processed_so_far)
+                if records:
+                    retried += len(records)
+                    not_fixed += sum(1 for r in records if not r["fixed"])
+                    with open(log_path, "a") as flog:
+                        for r in records:
+                            flog.write(json.dumps(r) + "\n")
+
+            for article_cands in cands:
+                for hypothesis in article_cands:
+                    fout.write(hypothesis + '\n')
+            fout.flush()
+            os.fsync(fout.fileno())  # force the OS to commit local writes to disk immediately
+
             batch_count += 1
-            if batch_count % SYNC_EVERY_N_BATCHES == 0:
-                fout.flush()
-                os.fsync(fout.fileno())
+            if batch_count % args.sync_every == 0:
                 _sync_to_drive(local_tgt_dir, args.tgt_dir)
                 print(f"  synced to Drive at batch {batch_count}")
     finally:
         fout.close()
         _sync_to_drive(local_tgt_dir, args.tgt_dir)  # final sync, whether we finished or an exception hit
         print("Final sync to Drive complete.")
+        if check_rouge:
+            print(f"ROUGE = 0 check: {retried} articles regenerated in this run, {not_fixed} still above the limit "
+                  f"(details in {log_path}).")
 
     return True
 
@@ -270,6 +366,19 @@ if __name__ == "__main__":
     parser.add_argument("--tgt_dir", type=str, help="target file")
     parser.add_argument("--dataset", type=str, default="cnndm", help="dataset")
     parser.add_argument("--num_samples", type=int, default=None, help="limit to the first N source lines (for testing)")
+    # the options below are used for liputan6 only
+    parser.add_argument("--num_cands", type=int, default=16, help="number of candidate summaries per article")
+    parser.add_argument("--diversity_penalty", type=float, default=0.5, help="diversity penalty of the diverse beam search")
+    parser.add_argument("--batch_size", type=int, default=16, help="articles per batch (use a smaller value with more candidates)")
+    parser.add_argument("--model_dir", type=str, default="/content/drive/MyDrive/indobart-liputan6-finetuned",
+                        help="folder of the fine-tuned IndoBART used to generate the candidates")
+    parser.add_argument("--ref_dir", type=str, default=None,
+                        help="reference summary file for the ROUGE = 0 check (default: --src_dir with .source replaced by .target)")
+    parser.add_argument("--max_zero_rouge", type=int, default=1,
+                        help="regenerate an article when more than this many of its candidates have ROUGE = 0")
+    parser.add_argument("--no_rouge_check", action="store_true", help="skip the ROUGE = 0 check and the regeneration")
+    parser.add_argument("--sync_every", type=int, default=100, help="copy the output file to --tgt_dir every N batches")
+    parser.add_argument("--disable_cache", action="store_true", help="generate with use_cache=False (slower, for troubleshooting)")
     args = parser.parse_args()
 
     if args.src_dir is None or args.tgt_dir is None:
@@ -298,6 +407,11 @@ if __name__ == "__main__":
 # command examples:
 # python gen_candidate.py --src_dir ./liputan6_converted/canonical/train.source \
 #   --tgt_dir /content/drive/MyDrive/liputan6_candidates/train.out --dataset liputan6
+
+# 32 candidates with the local fine-tuned model:
+# python gen_candidate.py --src_dir ./liputan6_converted/canonical/train.source \
+#   --tgt_dir /content/drive/MyDrive/BRIO/liputan6_candidates_32/canonical/train.out --dataset liputan6 \
+#   --num_cands 32 --batch_size 8 --model_dir ./indobart-liputan6-finetuned
 
 # test on a small slice first:
 # python gen_candidate.py --src_dir ./liputan6_converted/canonical/val.source \

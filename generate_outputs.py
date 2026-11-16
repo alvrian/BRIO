@@ -8,6 +8,7 @@ folder (put it on Google Drive) so they can be inspected or judged later.
 It works with both kinds of checkpoint:
   - a BRIO checkpoint file      e.g. .../master_1_0/model_generation.bin
   - a HuggingFace model folder  e.g. /content/drive/MyDrive/indobart-liputan6-finetuned
+  - a HuggingFace Hub name      e.g. indobenchmark/indobart-v2 (the pretrained model, not fine-tuned)
 
 Files written into --out_dir:
   sample_ids.txt    line numbers (0-based) of the test articles that were picked
@@ -106,8 +107,13 @@ def load_model(model_path, base_model, device):
         print("HuggingFace folder: loading %s" % model_path)
         tokenizer = IndoNLGTokenizer.from_pretrained(model_path)
         model = AutoModelForSeq2SeqLM.from_pretrained(model_path)
-    else:
+    elif model_path.endswith(".bin") or model_path.startswith(("/", "./", "../")):
         raise FileNotFoundError("model_path not found: %s" % model_path)
+    else:
+        # not a local path: treat it as a HuggingFace Hub name, e.g. indobenchmark/indobart-v2
+        print("HuggingFace Hub model: loading %s" % model_path)
+        tokenizer = IndoNLGTokenizer.from_pretrained(model_path)
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_path)
 
     model = model.to(device)
     model.eval()

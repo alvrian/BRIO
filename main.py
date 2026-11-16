@@ -806,7 +806,18 @@ if __name__ ==  "__main__":
     parser.add_argument("--config", default="", type=str, help="config path")
     parser.add_argument("--dataset_folder", default=None, type=str, help="custom path to dataset folder")
     parser.add_argument("--checkpoint_save_dir", default=None, type=str, help="custom path to save checkpoints (for Google Drive sync)")
+    # the options below override config.py; when they are not given, the value in config.py is used
+    parser.add_argument("--seed", default=None, type=int, help="random seed")
+    parser.add_argument("--max_num", default=None, type=int, help="number of candidate summaries used per article")
+    parser.add_argument("--batch_size", default=None, type=int, help="batch size on one gpu")
+    parser.add_argument("--accumulate_step", default=None, type=int, help="gradient accumulation steps")
     args = parser.parse_args()
+
+    # config.py only fills in values that are missing from args, so remove the options
+    # that were not given on the command line
+    for name in ["seed", "max_num", "batch_size", "accumulate_step"]:
+        if getattr(args, name) is None:
+            delattr(args, name)
     
     print("start...")
     if args.cuda is False:
