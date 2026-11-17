@@ -46,12 +46,16 @@ def compute_bertscore(candidates, references, args):
 
 
 def sign_test_p(wins, losses):
-    """Two-sided sign test: chance of a split at least this uneven if both systems were equal."""
+    """Two-sided sign test: chance of a split at least this uneven if both systems were equal.
+    Exact binomial tail, computed in log space so it also works for thousands of articles."""
     n = wins + losses
     if n == 0:
         return 1.0
     k = min(wins, losses)
-    return min(1.0, 2.0 * sum(math.comb(n, i) for i in range(k + 1)) / (2 ** n))
+    logs = [math.lgamma(n + 1) - math.lgamma(i + 1) - math.lgamma(n - i + 1) - n * math.log(2) for i in range(k + 1)]
+    top = max(logs)
+    tail = math.exp(top) * sum(math.exp(x - top) for x in logs)
+    return min(1.0, 2.0 * tail)
 
 
 def bootstrap_ci(diffs, seed, rounds=2000):
@@ -72,6 +76,8 @@ def main():
     parser.add_argument("--num_layers", type=int, default=None, help="needed only with a custom --model_type")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--summary_only", action="store_true",
+                        help="reuse the scores in bertscore/bertscore.csv and only rebuild the summary")
     args = parser.parse_args()
 
     import pandas as pd
@@ -85,7 +91,15 @@ def main():
 
     tables = []
     config_hash = ""
-    for name in args.systems:
+    csv_path = os.path.join(out_dir, "bertscore.csv")
+    if args.summary_only:
+        saved = pd.read_csv(csv_path)
+        missing = [name for name in args.systems if name not in set(saved["system"])]
+        if missing:
+            raise ValueError("no saved BERTScore for %s in %s" % (missing, csv_path))
+        tables.append(saved[saved["system"].isin(args.systems)])
+        config_hash = "reused from bertscore.csv"
+    for name in ([] if args.summary_only else args.systems):
         candidates = read_lines(os.path.join(args.data_dir, name + ".out"))
         if len(candidates) != len(ids):
             raise ValueError("%s.out has %d lines, expected %d (generation not finished?)" % (name, len(candidates), len(ids)))
@@ -94,7 +108,8 @@ def main():
         tables.append(pd.DataFrame({"id": ids, "system": name, "precision": P, "recall": R, "f1": F}))
 
     scores = pd.concat(tables, ignore_index=True)
-    scores.to_csv(os.path.join(out_dir, "bertscore.csv"), index=False)
+    if not args.summary_only:
+        scores.to_csv(csv_path, index=False)
 
     # mean BERTScore per system, with the ROUGE saved by generate_outputs.py next to it
     summary = scores.groupby("system")[["precision", "recall", "f1"]].mean()
@@ -122,8 +137,10 @@ def main():
         lines.append("")
         lines.append("BERTScore F1, %s minus %s: mean diff %+.4f, 95%% CI [%+.4f, %+.4f]"
                      % (b, a, sum(diff) / len(diff), low, high))
-        lines.append("  %s higher on %d articles, lower on %d, sign test p = %.4g"
-                     % (b, higher, lower, sign_test_p(higher, lower)))
+        p_value = sign_test_p(higher, lower)
+        p_text = "< 1e-16" if p_value < 1e-16 else "%.4g" % p_value
+        lines.append("  %s higher on %d articles, lower on %d, sign test p %s"
+                     % (b, higher, lower, p_text if p_text.startswith("<") else "= " + p_text))
 
     text = "\n".join(lines)
     print("\n" + text)

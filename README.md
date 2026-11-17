@@ -1,285 +1,261 @@
-# BRIO: Bringing Order to Abstractive Summarization
+# BRIO for Indonesian Summarization (IndoBART-v2 on Liputan6)
 
-This repo contains the code, data and trained models for our paper [BRIO: Bringing Order to Abstractive Summarization](https://arxiv.org/abs/2203.16804).
+This repository adapts **BRIO** (Liu et al., [BRIO: Bringing Order to Abstractive Summarization](https://arxiv.org/abs/2203.16804)) to Indonesian news summarization. The base model is [`indobenchmark/indobart-v2`](https://huggingface.co/indobenchmark/indobart-v2), trained and evaluated on the [Liputan6](https://arxiv.org/abs/2011.00679) dataset (Koto et al., AACL 2020).
 
-## Quick Links
+It is the code for a master's thesis at Binus University. The code is a fork of the [original BRIO implementation](https://github.com/yixinL7/BRIO); the CNN/DM and XSum code paths are kept, but this README covers the Liputan6 / IndoBART setup only.
+
+> **Original BRIO README:** the setup, preprocessing, training and evaluation instructions for the original CNN/DailyMail, XSum and NYT experiments, together with the authors' results and checkpoints, are kept in [README_original_BRIO.md](README_original_BRIO.md).
+
+## Contents
 
 - [Overview](#overview)
-- [How to Install](#how-to-install)
-- [Description of Codes](#description-of-codes)
-  - [Workspace](#workspace)
-- [Preprocessing](#preprocessing)
-  - [Preprocessed Data](#preprocessed-data)
-  - [Generate Candidate Summaries](#generate-candidate-summaries)
-  - [Preprocess Your Own Data](#preprocess-your-own-data)
-- [How to Run](#how-to-run)
-  -  [Hyper-parameter Setting](#hyper-parameter-setting)
-  -  [Train](#train)
-  -  [Evaluate](#evaluate)
-- [Results, Outputs, Checkpoints](#results-outputs-checkpoints)
-- [Use BRIO with Huggingface](#use-brio-with-huggingface)
+- [Repository layout](#repository-layout)
+- [Setup (Google Colab)](#setup-google-colab)
+- [Pipeline](#pipeline)
+  - [1. Convert Liputan6](#1-convert-liputan6)
+  - [2. Fine-tune the MLE baseline](#2-fine-tune-the-mle-baseline)
+  - [3. Generate candidate summaries](#3-generate-candidate-summaries)
+  - [4. Preprocess into the BRIO format](#4-preprocess-into-the-brio-format)
+  - [5. Train BRIO](#5-train-brio)
+  - [6. Evaluate](#6-evaluate)
+- [Notebooks](#notebooks)
+- [Known issues and notes](#known-issues-and-notes)
+- [References](#references)
 
 ## Overview
 
-We present a novel training paradigm for neural abstractive summarization.
-Instead of using MLE training alone, we introduce a contrastive learning component, which encourages the abstractive models to estimate the probability of system-generated summaries more accurately.
+Training has two stages:
 
-<div  align="center">
- <img src="model.png" width = "550" alt="d" align=center />
+1. **MLE baseline.** IndoBART-v2 is fine-tuned on Liputan6 with the usual cross-entropy loss (`finetune_indobart.py`). This model is the comparison baseline.
+2. **BRIO.** The baseline generates several candidate summaries per article with diverse beam search. The candidates are scored with ROUGE against the reference, and BRIO continues training the baseline with a contrastive ranking loss (candidates with higher ROUGE should get higher model probability) plus the MLE loss.
+
+The total loss is `mle_weight × MLE loss + rank_weight × ranking loss`. Experiments vary the loss weights, the number of candidates (`max_num`) and the random seed.
+
+Evaluation uses ROUGE, BERTScore, and an LLM judge (Gemini) for consistency, relevance, fluency and coherence, with a blind sheet for human raters.
+
+<div align="center">
+ <img src="model.png" width="550" alt="BRIO overview" />
 </div>
 
+## Repository layout
 
+| File | Purpose |
+|---|---|
+| `convert_liputan6_brio.py` | Converts the Liputan6 json files into `{split}.source` / `{split}.target` text files (one article per line) |
+| `finetune_indobart.py` | Fine-tunes IndoBART-v2 on Liputan6 (MLE baseline) |
+| `gen_candidate.py` | Generates candidate summaries with diverse beam search; regenerates articles with too many ROUGE = 0 candidates |
+| `check_candidates.py` | Reports ROUGE = 0 candidates per article and per position, and the number of distinct candidates |
+| `preprocess.py` | Scores the candidates with ROUGE and writes one json file per article in the BRIO format |
+| `main.py` | BRIO training and evaluation |
+| `config.py` | Default hyper-parameters (`liputan6_setting` for this project) |
+| `model.py`, `data_utils.py`, `label_smoothing_loss.py`, `utils.py` | Model wrapper, data loader, losses, logging |
+| `compare_and_contrast.py` | Loads a BRIO `.bin` checkpoint or a HuggingFace folder and reports ROUGE on a test file |
+| `generate_outputs.py` | Generates and **saves** summaries from a checkpoint (resumable), with ROUGE |
+| `bertscore_eval.py` | BERTScore for the saved summaries, with paired comparison against the baseline |
+| `llm_judge.py` | LLM-as-a-judge evaluation with the Gemini API, plus a blind human rating sheet |
+| `colab_vsc/*.ipynb` | Colab notebooks that run the steps above (see [Notebooks](#notebooks)) |
 
-## How to Install
+## Setup (Google Colab)
 
-- `python3.8`
-- `conda create --name env --file spec-file.txt`
-- Further steps
-    - install additional libraries (after activating the conda env) `pip install -r requirements.txt`
-    - `compare_mt` -> https://github.com/neulab/compare-mt
-        ```console
-        git clone https://github.com/neulab/compare-mt.git
-        cd ./compare-mt
-        pip install -r requirements.txt
-        python setup.py install
-        ```
-Our code is based on Huggingface's [Transformers](https://github.com/huggingface/transformers) library. 
-
-## Description of Codes
-- `cal_rouge.py` -> ROUGE calculation
-- `config.py` -> model configuration
-- `data_utils.py` -> dataloader
-- `label_smoothing_loss.py` -> label smoothing loss
-- `main.py` -> training and evaluation procedure
-- `model.py` -> models
-- `modeling_bart.py`, `modeling_pegasus.py` -> modified from Transformers library to support more efficient training
-- `preprocess.py` -> data preprocessing
-- `utils.py` -> utility functions
-- `gen_candidate.py` -> generate candidate summaries
-
-
-### Workspace
-Following directories should be created for our experiments.
-- `./cache` -> storing model checkpoints
-- `./result` -> storing evaluation results
-
-## Preprocessing
-
-We use the following datasets for our experiments.
-
-- CNN/DailyMail -> https://github.com/abisee/cnn-dailymail
-- XSum -> https://github.com/EdinburghNLP/XSum
-- NYT -> https://catalog.ldc.upenn.edu/LDC2008T19
-
-### Preprocessed Data
-
-You can download the preprocessed data for our experiments on [CNNDM](https://yaleedu-my.sharepoint.com/:u:/g/personal/yixin_liu_yale_edu/EZAVS548ctlIt1dpVs0No6UBkGqMbS8CuMrWQ3ZcsPoyOA?e=deC4kz), [CNNDM (cased)](https://yaleedu-my.sharepoint.com/:u:/g/personal/yixin_liu_yale_edu/EXoAthMu8M1NrA-Fovl2pcwB2MsU7CQ-lFrLjQZdOBMHBw?e=Rli1fM) and [XSum](https://yaleedu-my.sharepoint.com/:u:/g/personal/yixin_liu_yale_edu/Ef8xTVrvyptFkHwuODEmmCIB1Qd63RQeDhV2zzlq0IBOxg?e=PpEle7).
-
-After donwloading, you should unzip the zip files in this root directory.
-
-For NYT, you will need to get the license and please follow https://github.com/kedz/summarization-datasets for pre-processing.
-
-### Generate Candidate Summaries
-
-To generate the candidate summaries from a pre-trained model, please run
-```console
-python gen_candidate.py --gpuid [gpuid] --src_dir [path of the input file (e.g. test.source)] --tgt_dir [path of the output file] --dataset [cnndm/xsum] 
-```
-
-### Preprocess Your Own Data
-
-For data preprocessing, please run
-```console
-python preprocess.py --src_dir [path of the raw data] --tgt_dir [output path] --split [train/val/test] --cand_num [number of candidate summaries] --dataset [cnndm/xsum/nyt] -l [lowercase if the flag is set]
-```
-`src_dir` should contain the following files (using test split as an example):
-- `test.source`
-- `test.source.tokenized`
-- `test.target`
-- `test.target.tokenized`
-- `test.out`
-- `test.out.tokenized`
-
-Each line of these files should contain a sample except for `test.out` and `test.out.tokenized`. In particular, you should put the candidate summaries for one data sample at neighboring lines in `test.out` and `test.out.tokenized`.
-
-**Notes**: after the data preprocessing, you should also put the raw file `test.source`, `test.target` into the created data folder (e.g. `./cnndm/diverse/test.source`)
-
-We use the PTB tokenizer provided by Standford [CoreNLP](https://stanfordnlp.github.io/CoreNLP/index.html) ([download here](https://repo1.maven.org/maven2/edu/stanford/nlp/stanford-corenlp/3.8.0/stanford-corenlp-3.8.0.jar)). Please note that tokenized texts are *only* used for evaluation.
-To tokenize a file, you may run (using test.source as an example)
-```console
-export CLASSPATH=/your_path/stanford-corenlp-3.8.0.jar
-cat test.source | java edu.stanford.nlp.process.PTBTokenizer -ioFileList -preserveLines > test.source.tokenized
-```
-
-We have provided the examples files in `./examples/raw_data`.
-
-The preprocessing procedure will store the processed data as seperate json files in `tgt_dir`.
-
-#### Example: preprocessing test set on CNNDM
-
-```console
-# starting from the root directory
-
-# create folders
-mkdir ./cnndm
-mkdir ./cnndm/diverse
-mkdir ./cnndm/diverse/test
-
-# suppose that the raw files are at ./raw_data, the results will be saved at ./cnndm/diverse/test
-# please remember to put the source file and the target file on test set into the folder, e.g. ./cnndm/diverse/test.source
-
-python preprocess.py --src_dir ./raw_data --tgt_dir ./cnndm/diverse --split test --cand_num 16 --dataset cnndm -l
-
-```
-
-
-## How to Run
-
-
-### Hyper-parameter Setting
-You may specify the hyper-parameters in `main.py`.
-We also provide the specific settings on CNNDM (NYT share the same setting) and XSum in `config.py`.
-
-### Train
-```console
-python main.py --cuda --gpuid [list of gpuid] --config [name of the config (cnndm/xsum)] -l 
-```
-The checkpoints and log will be saved in a subfolder of `./cache`.
-#### Example: training on CNNDM
-```console
-python main.py --cuda --gpuid 0 1 2 3 --config cnndm -l 
-```
-
-#### Finetuning from an existing checkpoint
-```console
-python main.py --cuda --gpuid [list of gpuid] -l --config [name of the config (cnndm/xsum)] --model_pt [model path]
-```
-model path should be a subdirectory in the `./cache` directory, e.g. `cnndm/model.pt` (it shouldn't contain the prefix `./cache/`).
-
-### Evaluate
-For ROUGE calculation, we use the standard ROUGE Perl package from [here](https://github.com/summanlp/evaluation/tree/master/ROUGE-RELEASE-1.5.5) in our paper. We lowercased and tokenized (using PTB Tokenizer) texts before calculating the ROUGE scores. Please note that the scores calculated by this package would be sightly *different* from the ROUGE scores calculated/reported during training/intermidiate stage of evalution, because we use a pure python-based ROUGE implementation to calculate those scores for better efficiency. 
-
-If you encounter problems when setting up the ROUGE Perl package (unfortunately it happens a lot :( ), you may consider using pure Python-based ROUGE package such as the one we used from the [compare-mt](https://github.com/neulab/compare-mt) package.
-
-We provide the evaluation script in `cal_rouge.py`. If you are going to use Perl ROUGE package, please change line 13 into the path of your perl ROUGE package.
-```python
-_ROUGE_PATH = '/YOUR-ABSOLUTE-PATH/ROUGE-RELEASE-1.5.5/'
-```
-
-To evaluate the model performance, please first use the following command to generate the summaries.
-```console
-python main.py --cuda --gpuid [single gpu] --config [name of the config (cnndm/xsum)] -e --model_pt [model path] -g [evaluate the model as a generator] -r [evaluate the model as a scorer/reranker]
-```
-model path should be a subdirectory in the `./cache` directory, e.g. `cnndm/model.pt` (it shouldn't contain the prefix `./cache/`).
-The output will be saved in a subfolder of `./result` having the same name of the checkpoint folder.
-
-#### Example: evaluating the model as a generator on CNNDM
-```console
-# write the system-generated files to a file: ./result/cnndm/test.out
-python main.py --cuda --gpuid 0 --config cnndm -e --model_pt cnndm/model_generation.bin -g
-
-# tokenize the output file -> ./result/cnndm/test.out.tokenized (you may use other tokenizers)
-export CLASSPATH=/your_path/stanford-corenlp-3.8.0.jar
-cat ./result/cnndm/test.out | java edu.stanford.nlp.process.PTBTokenizer -ioFileList -preserveLines > ./result/cnndm/test.out.tokenized
-
-# calculate the ROUGE scores using ROUGE Perl Package
-python cal_rouge.py --ref ./cnndm/test.target.tokenized --hyp ./result/cnndm/test.out.tokenized -l
-
-# calculate the ROUGE scores using ROUGE Python Implementation
-python cal_rouge.py --ref ./cnndm/test.target.tokenized --hyp ./result/cnndm/test.out.tokenized -l -p
-```
-
-#### Example: evaluating the model as a scorer on CNNDM
-```console
-# rerank the candidate summaries
-python main.py --cuda --gpuid 0 --config cnndm -e --model_pt cnndm/model_ranking.bin -r
-
-# calculate the ROUGE scores using ROUGE Perl Package
-# ./result/cnndm/reference and ./result/cnndm/candidate are two folders containing files. Each one of those files contain one summary
-python cal_rouge.py --ref ./result/cnndm/reference --hyp ./result/cnndm/candidate -l
-
-# calculate the ROUGE scores using ROUGE Python Implementation
-# ./result/cnndm/reference and ./result/cnndm/candidate are two folders containing files. Each one of those files contain one summary
-python cal_rouge.py --ref ./result/cnndm/reference --hyp ./result/cnndm/candidate -l -p
-```
-
-
-
-## Results, Outputs, Checkpoints
-
-The following are ROUGE scores calcualted by the standard ROUGE Perl package. 
-
-### CNNDM
-|          | ROUGE-1 | ROUGE-2 | ROUGE-L |
-|----------|---------|---------|---------|
-| BART     | 44.29   | 21.17   | 41.09   |
-| BRIO-Ctr     | 47.28   | 22.93   | 44.15   |
-| BRIO-Mul     | 47.78   | 23.55   | 44.57   |
-| BRIO-Mul (Cased)  | 48.01   | 23.76   | 44.63   |
-
-### XSum
-|          | ROUGE-1 | ROUGE-2 | ROUGE-L |
-|----------|---------|---------|---------|
-| Pegasus  | 47.46   | 24.69   | 39.53   |
-| BRIO-Ctr     | 48.13   | 25.13  | 39.84   |
-| BRIO-Mul    | 49.07   | 25.59   | 40.40   |
-
-### NYT
-|          | ROUGE-1 | ROUGE-2 | ROUGE-L |
-|----------|---------|---------|---------|
-| BART     | 55.78   | 36.61   | 52.60   |
-| BRIO-Ctr     | 55.98   | 36.54  | 52.51   |
-| BRIO-Mul    | 57.75  | 38.64   | 54.54   |
-
-Our model outputs on these datasets can be found in `./output`.
-
-We summarize the outputs and model checkpoints below.
-You could load these checkpoints using `model.load_state_dict(torch.load(path_to_checkpoint))`.
-
-|          | Checkpoints | Model Output | Reference Output |
-|----------|---------|---------|---------|
-| CNNDM    | [model_generation.bin](https://yaleedu-my.sharepoint.com/:u:/g/personal/yixin_liu_yale_edu/EWu_h8oUFKdKgv2r9GkTTlEBXRioWkd3Y51_HHN2zj9uUg?e=EFAnME) <br> [model_ranking.bin](https://yaleedu-my.sharepoint.com/:u:/g/personal/yixin_liu_yale_edu/EVLl9BXC8uhMttARDYehvbMBdG2u40wKR3ZeXuyIb4lVUQ?e=rVbYNs)   | [cnndm.test.ours.out](output/cnndm.test.ours.out) | [cnndm.test.reference](output/cnndm.test.reference)  |
-| CNNDM (Cased)   | [model_generation.bin](https://yaleedu-my.sharepoint.com/:u:/g/personal/yixin_liu_yale_edu/EXyhVO_DG95Mle2g5C35DD4ByFtqdTq5cwDMJK2NthjRNg?e=xsdEGM)  | [cnndm.test.ours.cased.out](output/cnndm.test.ours.cased.out) | [cnndm.test.cased.reference](output/cnndm.test.cased.reference)  |
-| XSum     | [model_generation.bin](https://yaleedu-my.sharepoint.com/:u:/g/personal/yixin_liu_yale_edu/EVyFtk9vBahAhnZH0U7d0FsBMC0vEcRigUxYTwvYovDS-w?e=hm61xn) <br> [model_ranking.bin](https://yaleedu-my.sharepoint.com/:u:/g/personal/yixin_liu_yale_edu/ERopm6VcP4xOmuqEnuJCs-IByd_pK0M6Mh4nqqeqYFHXbA?e=Xj8Or7) | [xsum.test.ours.out](output/xsum.test.ours.out) | [xsum.test.reference](output/xsum.test.reference)  |
-
-
-## Use BRIO with Huggingface
-
-You can load our trained models for *generation* from Huggingface Transformers.
-Our model checkpoint on CNNDM (`Yale-LILY/brio-cnndm-uncased`, `Yale-LILY/brio-cnndm-cased`) is a standard BART model (i.e., [BartForConditionalGeneration](https://huggingface.co/docs/transformers/model_doc/bart#transformers.BartForConditionalGeneration)) while our model checkpoint on XSum (`Yale-LILY/brio-xsum-cased`) is a standard Pegasus model (i.e., [PegasusForConditionalGeneration](https://huggingface.co/docs/transformers/model_doc/pegasus#transformers.PegasusForConditionalGeneration)).
+All experiments run on Google Colab with a GPU runtime. The code needs **Python 3.8**, provided by a conda environment through `condacolab`:
 
 ```python
-from transformers import BartTokenizer, PegasusTokenizer
-from transformers import BartForConditionalGeneration, PegasusForConditionalGeneration
-
-IS_CNNDM = True # whether to use CNNDM dataset or XSum dataset
-LOWER = False
-ARTICLE_TO_SUMMARIZE = "Manchester United superstar Cristiano Ronaldo scored his 806th career goal in Old Trafford,\
- breaking FIFA's all-time record for most goals in competitive matches in men's football history.\
- It was the second of three goals the Portuguese attacker scored during the game,\
- leading United to a 3-2 victory over Tottenham and finishing the day with 807 total career goals.\
- The previous FIFA goal record was held by Josef Bican, with 805 goals."
-
-# Load our model checkpoints
-if IS_CNNDM:
-    model = BartForConditionalGeneration.from_pretrained('Yale-LILY/brio-cnndm-uncased')
-    tokenizer = BartTokenizer.from_pretrained('Yale-LILY/brio-cnndm-uncased')
-else:
-    model = PegasusForConditionalGeneration.from_pretrained('Yale-LILY/brio-xsum-cased')
-    tokenizer = PegasusTokenizer.from_pretrained('Yale-LILY/brio-xsum-cased')
-
-max_length = 1024 if IS_CNNDM else 512
-# generation example
-if LOWER:
-    article = ARTICLE_TO_SUMMARIZE.lower()
-else:
-    article = ARTICLE_TO_SUMMARIZE
-inputs = tokenizer([article], max_length=max_length, return_tensors="pt", truncation=True)
-# Generate Summary
-summary_ids = model.generate(inputs["input_ids"])
-print(tokenizer.batch_decode(summary_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0])
+!pip install -q condacolab
+import condacolab
+condacolab.install()          # the runtime restarts, this is expected
 ```
-*Notes*: our checkpoints on Huggingface *cannot* be directly loaded to the pytorch model (`BRIO`) in our code because our pytorch model is a wrapper on BART/PEGASUS for better training efficiency. However, you can use it to initilize our pytorch model, e.g., 
+
 ```python
-model = BRIO('Yale-LILY/brio-cnndm-uncased', tok.pad_token_id, is_pegasus=False)
+!git clone https://github.com/alvrian/BRIO.git
+from google.colab import drive
+drive.mount('/content/drive')
+%cd BRIO
 ```
+
+```python
+! conda create --name env --file spec-file.txt
+! conda run --no-capture-output -n env pip install -r requirements.txt
+! conda run -n env python -c "import nltk;nltk.download('punkt')"
+! git clone https://github.com/neulab/compare-mt.git
+! cd compare-mt && conda run --no-capture-output -n env pip install -r requirements.txt
+! cd compare-mt && conda run -n env python setup.py install
+```
+
+Run every script through the env, for example `!conda run --no-capture-output -n env python main.py ...`.
+
+Main package versions (`requirements.txt`): `transformers==4.46.3`, `torch==2.4.1`, `indobenchmark-toolkit==0.1.7`.
+
+### Google Drive layout
+
+Colab sessions are temporary, so inputs and outputs are kept on Google Drive:
+
+```
+MyDrive/BRIO/
+├── indobart-liputan6-finetuned.zip      # MLE baseline, unzipped into the repo root
+├── Dataset/
+│   ├── liputan6_converted.zip           # .source / .target files
+│   ├── liputan6_preprocessed.zip        # BRIO json files, 16 candidates
+│   └── liputan6_32.zip                  # BRIO json files, 32 candidates
+├── liputan6_candidates/canonical/       # 16-candidate .out files, test.source / test.target
+├── liputan6_candidates_32/canonical/    # 32-candidate .out files and regeneration logs
+├── checkpoints/                         # BRIO checkpoints, one folder per run
+├── eval_outputs/                        # 100-article sample: summaries, judge and BERTScore results
+└── eval_outputs_full/                   # whole test set: summaries and BERTScore results
+```
+
+Local working folders inside the repo: `./cache` (checkpoints of the current session), `./result` (evaluation outputs) and `./liputan6/canonical/{train,val,test}` (BRIO json files).
+
+## Pipeline
+
+### 1. Convert Liputan6
+
+Liputan6 has to be requested from its authors. It comes in two partitions; this project uses **canonical** (train 193,883, val 10,972, test 10,972 articles).
+
+```console
+python convert_liputan6_brio.py --input_dir dataset/liputan6_data --output_dir liputan6_converted --partition canonical
+```
+
+This writes `liputan6_converted/canonical/{train,val,test}.{source,target}`. All later steps lowercase the text.
+
+### 2. Fine-tune the MLE baseline
+
+```console
+python finetune_indobart.py
+```
+
+The paths are set in the script: data from `liputan6_converted/canonical`, output to `/content/drive/MyDrive/indobart-liputan6-finetuned`. The notebooks expect this folder zipped as `MyDrive/BRIO/indobart-liputan6-finetuned.zip` and unzipped into the repo root, where `config.py` (`pretrained = "indobart-liputan6-finetuned"`) loads it.
+
+IndoBART input format: the encoder input is `<s> X </s> [indonesian]` and the decoder starts with `[indonesian] <s>` (language token id 40002).
+
+### 3. Generate candidate summaries
+
+```console
+python gen_candidate.py --dataset liputan6 \
+    --src_dir ./liputan6_converted/canonical/train.source \
+    --tgt_dir /content/drive/MyDrive/BRIO/liputan6_candidates_32/canonical/train.out \
+    --model_dir ./indobart-liputan6-finetuned \
+    --num_cands 32 --diversity_penalty 0.5 --batch_size 4 --sync_every 500
+```
+
+| Option | Meaning |
+|---|---|
+| `--num_cands` | candidates per article (default 16) |
+| `--diversity_penalty` | diverse beam search penalty (default 0.5) |
+| `--batch_size` | articles per batch. Larger is not faster here (see [Known issues](#known-issues-and-notes)) |
+| `--model_dir` | the fine-tuned baseline that generates the candidates |
+| `--max_zero_rouge` | regenerate an article when more than this many candidates have ROUGE = 0 (default 1) |
+| `--no_rouge_check` | skip the check and the regeneration |
+| `--num_samples` | only the first N articles, for tests |
+| `--sync_every` | copy the output to `--tgt_dir` every N batches |
+| `--bf16` | generate in bfloat16 |
+| `--use_cache` | turn the decoder cache on (crashes with transformers 4.46.3, see below) |
+
+The output has `num_cands` lines per article, in article order. The script writes to a local file and copies it to Drive regularly. **It resumes automatically**: run the same command again after a disconnect and it continues from the last complete article saved on Drive. Keep `--num_cands` the same when resuming, because resume counts articles in groups of that size.
+
+**ROUGE = 0 check.** After each batch, an article with more than `--max_zero_rouge` candidates at ROUGE = 0 against the reference is generated again with the diversity penalty multiplied by 0.5, 0.25 and 0.1, and the attempt with the fewest ROUGE = 0 candidates is kept. Each case is logged to `<tgt_dir>.regen_log.jsonl`. Note that ROUGE = 0 is not always gibberish: some valid summaries share no word with the reference.
+
+Check a candidate file before preprocessing:
+
+```console
+python check_candidates.py --out_file .../val.out --tgt_file ./liputan6_converted/canonical/val.target --num_cands 32
+```
+
+### 4. Preprocess into the BRIO format
+
+`preprocess.py` expects `.tokenized` copies of every file. The Stanford PTB tokenizer is not used for Indonesian, so the copies are identical to the originals:
+
+```console
+cp test.source test.source.tokenized   # same for .target and .out, for each split
+python preprocess.py --src_dir ./liputan6_converted/canonical --tgt_dir ./liputan6/canonical \
+    --split train --cand_num 32 --dataset liputan6 -l
+```
+
+`--cand_num` must equal the number of candidates per article in the `.out` file, otherwise candidates are assigned to the wrong articles without an error. For evaluation, also copy `test.source` and `test.target` into `./liputan6/canonical/`.
+
+### 5. Train BRIO
+
+```console
+python main.py --cuda --gpuid 0 --config liputan6 -l \
+    --seed 70905 --max_num 32 --mle_weight 1 --rank_weight 10 \
+    --checkpoint_save_dir /content/drive/MyDrive/BRIO/checkpoints/BRIO_Liputan6_checkpoint_1-10_32_seed70905
+```
+
+These options override `config.py` only when they are given:
+
+| Option | Default in `liputan6_setting` | Meaning |
+|---|---|---|
+| `--seed` | 970903 | random seed |
+| `--max_num` | 16 | candidates used per article (the first N in generation order) |
+| `--mle_weight` | 1 | weight of the MLE loss |
+| `--rank_weight` | 1 | weight of the ranking loss |
+| `--batch_size` | 2 | articles per GPU step |
+| `--accumulate_step` | 8 | gradient accumulation steps |
+
+Other defaults: 1 epoch, max learning rate 0.0007, 1,200 warm-up steps, validation every 2,000 steps, generation length 20 to 100 tokens, 4 beams, length penalty 1.0.
+
+`--checkpoint_save_dir` is required for Liputan6. Checkpoints are copied to `<checkpoint_save_dir>/<step>/` at each validation and to `<checkpoint_save_dir>/master_<mle_weight>_<rank_weight>/` at the end of each epoch:
+
+- `model_generation.bin`: best checkpoint for generation (use this for summaries)
+- `model_ranking.bin`: best checkpoint for candidate ranking
+- `model_cur.bin`, `optimizer.bin`, `train_state.json`: latest state, used to resume
+- `config.txt`, `log.txt`: the full run settings and the training log
+
+Use a different `--checkpoint_save_dir` for every run, so runs do not overwrite each other. With 32 candidates, if training runs out of GPU memory, use `--batch_size 1 --accumulate_step 16`.
+
+### 6. Evaluate
+
+**ROUGE with `main.py`.** Copy the checkpoint folder into `./cache` first; `--model_pt` is relative to `./cache`:
+
+```console
+python main.py --cuda --gpuid 0 --config liputan6 -e --model_pt <folder>/model_generation.bin -g -r
+```
+
+`-g` evaluates the model as a generator (summaries in `./result/<folder>/test.out`), `-r` as a reranker of the candidates. Pass the same `--max_num` as in training. For Liputan6, ROUGE is computed with compare-mt's Python ROUGE without stemming.
+
+**Saved summaries, from Drive directly.** `generate_outputs.py` reads a BRIO `.bin` file or a HuggingFace folder, saves the summaries, resumes after a disconnect, and writes ROUGE to `<name>.rouge.json`. The first run picks the articles (`--sample_n`, seed 42) and saves `sample_ids.txt`, so every model is evaluated on the same articles. `--sample_n 0` uses the whole test set.
+
+```console
+python generate_outputs.py --name baseline --model_path ./indobart-liputan6-finetuned --out_dir <dir> --sample_n 0
+python generate_outputs.py --name brio_1_10_seed1 --model_path <checkpoint>/master_1_10/model_generation.bin --out_dir <dir> --sample_n 0
+```
+
+**BERTScore.** Uses multilingual BERT by default (`--model_type indobenchmark/indobert-base-p1 --num_layers 9` for IndoBERT). Writes `bertscore/bertscore_summary.txt` (BERTScore next to ROUGE, with a bootstrap confidence interval and a sign test per pair) and per-article scores.
+
+```console
+python bertscore_eval.py --data_dir <dir> --systems baseline brio_1_10_seed1 --pair baseline brio_1_10_seed1
+```
+
+**LLM judge (Gemini).** Scores relevance, consistency, fluency and coherence (1 to 5), lists unsupported statements, and runs a blind head-to-head comparison. Needs `GEMINI_API_KEY` in the environment. It stops at `--max_requests` (default 450, for the free tier) and resumes on the next run. Articles refused by Gemini's content filter are recorded in `judge/blocked.jsonl` and excluded for every system.
+
+```console
+python llm_judge.py --data_dir <dir> --systems baseline brio --pair baseline brio --include_reference --human_n 30
+```
+
+Results are written to `<dir>/judge/`: `summary.txt`, `scores.csv`, `pairwise.csv`, and with `--human_n` a blind `human_eval_sheet.csv` plus its key `human_eval_key.csv`. The protocol follows G-Eval in spirit (criteria, evaluation steps, form-filling scores) but uses hand-written evaluation steps and integer scores instead of probability-weighted scores.
+
+## Notebooks
+
+| Notebook | Use |
+|---|---|
+| `colab_vsc/BRIO_indobart_liputan6.ipynb` | Original end-to-end pipeline for 16 candidates |
+| `colab_vsc/BRIO_32_candidates.ipynb` | 32 candidates: penalty test, generation, preprocessing, training per seed |
+| `colab_vsc/BRIO_bertscore.ipynb` | Saves summaries for several checkpoints and computes BERTScore |
+| `colab_vsc/BRIO_llm_judge.ipynb` | Saves summaries for a 100-article sample and runs the Gemini judge |
+
+After `git pull`, reopen a notebook from GitHub to get its latest version: pulling updates the scripts on the Colab disk but not a notebook already open in the browser.
+
+## Known issues and notes
+
+- **Decoder cache crash.** With transformers 4.46.3, IndoBART generation with the decoder cache on fails with a CUDA device-side assert (an index out of range in the decoder position embeddings). All scripts therefore generate with `use_cache=False`. This is correct but slow: 32-candidate generation runs at about 3.5 s per article, which is roughly 190 hours for the train split.
+- **Larger generation batches are slower.** Without the cache, a batch of 16 ran at about 4.7 s per article against 3.5 s for a batch of 4, so keep `--batch_size 4` for 32 candidates.
+- **Old 16-candidate files.** A 16-candidate test file generated with an earlier version of `gen_candidate.py` (cache on, no forced `<s>`) has gibberish at candidate positions 14 and 15 for about 91% of articles. Check older candidate files with `check_candidates.py` before using them. The current version produced no ROUGE = 0 candidates in a 48-article test.
+- **Stemming mismatch between candidate ranking and evaluation.** `preprocess.py` scores the candidates with ROUGE using `use_stemmer=True`, which applies the English Porter stemmer. These scores decide the order of the candidates that BRIO learns to rank. `main.py` (and `compare_and_contrast.py`, `generate_outputs.py`) evaluate Liputan6 with `use_stemmer=False`. The Porter stemmer is designed for English, so on Indonesian text it mostly strips English-like word endings and does not reduce Indonesian affixes (for example *me-*, *-kan*, *-nya*); its effect on the scores is expected to be small, but it means training ranks candidates with a slightly different ROUGE than the one reported. `gen_candidate.py` and `check_candidates.py` also use the stemmer, to stay consistent with `preprocess.py`. The 16- and 32-candidate datasets were built this way, so this applies to all reported runs.
+- **IndoNLGTokenizer.** The scripts patch `pad`, `decode` and `save_vocabulary` of `IndoNLGTokenizer` for compatibility with transformers 4.46.3.
+- **Colab limits.** Sessions end after at most 24 hours. Every long step (candidate generation, `generate_outputs.py`, `llm_judge.py`) resumes from Drive; check the file counts before restarting.
+
+## References
+
+- Yixin Liu, Pengfei Liu, Dragomir Radev, Graham Neubig. *BRIO: Bringing Order to Abstractive Summarization*. ACL 2022. [arXiv:2203.16804](https://arxiv.org/abs/2203.16804) · [original code](https://github.com/yixinL7/BRIO) · [original README](README_original_BRIO.md)
+- Fajri Koto, Jey Han Lau, Timothy Baldwin. *Liputan6: A Large-scale Indonesian Dataset for Text Summarization*. AACL-IJCNLP 2020. [arXiv:2011.00679](https://arxiv.org/abs/2011.00679)
+- Tianyi Zhang, Varsha Kishore, Felix Wu, Kilian Q. Weinberger, Yoav Artzi. *BERTScore: Evaluating Text Generation with BERT*. ICLR 2020. [bert-score package](https://github.com/Tiiiger/bert_score)
+- Yang Liu, Dan Iter, Yichong Xu, Shuohang Wang, Ruochen Xu, Chenguang Zhu. *G-Eval: NLG Evaluation using GPT-4 with Better Human Alignment*. [arXiv:2303.16634](https://arxiv.org/abs/2303.16634)

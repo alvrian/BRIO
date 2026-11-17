@@ -357,13 +357,16 @@ def run_judging(args, rows, systems, pairs, scores_path, pairwise_path, blocked_
 
 
 def sign_test_p(wins, losses):
-    """Two-sided sign test: chance of a split at least this uneven if both systems were equal."""
+    """Two-sided sign test: chance of a split at least this uneven if both systems were equal.
+    Exact binomial tail, computed in log space so it also works for thousands of articles."""
     n = wins + losses
     if n == 0:
         return 1.0
     k = min(wins, losses)
-    p = 2.0 * sum(math.comb(n, i) for i in range(k + 1)) / (2 ** n)
-    return min(1.0, p)
+    logs = [math.lgamma(n + 1) - math.lgamma(i + 1) - math.lgamma(n - i + 1) - n * math.log(2) for i in range(k + 1)]
+    top = max(logs)
+    tail = math.exp(top) * sum(math.exp(x - top) for x in logs)
+    return min(1.0, 2.0 * tail)
 
 
 def summarise(args, systems, pairs, out_dir, scores_path, pairwise_path, blocked_path):
