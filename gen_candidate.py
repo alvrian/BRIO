@@ -285,6 +285,9 @@ def generate_summaries_liputan6(args):
     if os.path.exists(local_tgt_dir) and os.path.getsize(local_tgt_dir) > 0:
         with open(local_tgt_dir, 'r') as f:
             existing_lines = f.readlines()
+        # a last line without a newline was cut off in the middle (for example during a copy to Drive)
+        if existing_lines and not existing_lines[-1].endswith("\n"):
+            existing_lines = existing_lines[:-1]
         complete_groups = len(existing_lines) // num_cands
         keep_lines = complete_groups * num_cands
         if keep_lines != len(existing_lines):

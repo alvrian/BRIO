@@ -122,8 +122,8 @@ def load_model(model_path, base_model, device):
 
 def generate(args, sources, out_path):
     """Generate one summary per article and append it to out_path (resumable)."""
+    import time
     import torch
-    from tqdm import tqdm
     import compare_and_contrast as cc
 
     done = len(read_lines(out_path)) if os.path.exists(out_path) else 0
@@ -137,8 +137,10 @@ def generate(args, sources, out_path):
     tokenizer, model = load_model(args.model_path, args.base_model, device)
     pad_id = tokenizer.pad_token_id
 
+    print("Model loaded on %s, generating %d summaries" % (device, len(sources) - done), flush=True)
+    start_time = time.time()
     with open(out_path, "a", encoding="utf-8") as fout:
-        for start in tqdm(range(done, len(sources), args.batch_size)):
+        for batch_number, start in enumerate(range(done, len(sources), args.batch_size)):
             # the models were trained on lowercased text, so lowercase the article first
             batch_src = [s.lower() for s in sources[start:start + args.batch_size]]
             batch_ids = [cc.build_input_ids(s, tokenizer, args.max_src_len) for s in batch_src]
@@ -164,6 +166,14 @@ def generate(args, sources, out_path):
             texts = [tokenizer.decode(g.tolist(), skip_special_tokens=True).strip().replace("\n", " ") for g in gen_ids]
             fout.write("".join(t + "\n" for t in texts))
             fout.flush()
+
+            # progress line (plain print, so it always shows up in the Colab output)
+            if batch_number < 2 or (batch_number + 1) % 20 == 0:
+                finished = min(start + args.batch_size, len(sources))
+                per_article = (time.time() - start_time) / (finished - done)
+                hours_left = per_article * (len(sources) - finished) / 3600
+                print("%d / %d summaries, %.2f s per article, about %.1f h left"
+                      % (finished, len(sources), per_article, hours_left), flush=True)
 
 
 def main():
