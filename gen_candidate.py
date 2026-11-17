@@ -9,6 +9,7 @@ import os
 import shutil
 import json
 import time
+import contextlib
 
 def generate_summaries_cnndm(args):
     device = f"cuda:{args.gpuid}"
@@ -171,13 +172,15 @@ def _build_batch(slines, tokenizer, max_src_len=1024):
     return input_ids, attention_mask
 
 
-def _generate_candidates(slines, tokenizer, model, device, max_length, min_length, num_cands, diversity_penalty, use_cache=False):
+def _generate_candidates(slines, tokenizer, model, device, max_length, min_length, num_cands, diversity_penalty, use_cache=False, bf16=False):
     """Diverse beam search. Returns one list of num_cands candidate summaries per source line."""
     # The decoder cache is off by default. With transformers 4.46.3 cached generation for this model fails
     # with a CUDA "device-side assert" (index out of range while the cache positions are updated), the same
     # MBart cache problem that main.py and compare_and_contrast.py avoid with use_cache=False.
     extra = {} if use_cache else {"use_cache": False}
-    with torch.no_grad():
+    # bf16: run the model in bfloat16 (faster on recent GPUs), as main.py does for its evaluation
+    amp = torch.autocast(device_type="cuda", dtype=torch.bfloat16) if bf16 else contextlib.nullcontext()
+    with torch.no_grad(), amp:
         input_ids, attention_mask = _build_batch(slines, tokenizer, max_src_len=1024)
         summaries = model.generate(
             input_ids=input_ids.to(device),
@@ -323,7 +326,7 @@ def generate_summaries_liputan6(args):
         # so one batch of long articles does not stop the whole run.
         try:
             return _generate_candidates(lines, tokenizer, model, device, max_length, min_length, num_cands, penalty,
-                                        use_cache=args.use_cache)
+                                        use_cache=args.use_cache, bf16=args.bf16)
         except torch.cuda.OutOfMemoryError:
             torch.cuda.empty_cache()
             if len(lines) == 1:
@@ -332,7 +335,8 @@ def generate_summaries_liputan6(args):
             print(f"  out of GPU memory with {len(lines)} articles, splitting the batch", flush=True)
             return generate_fn(lines[:half], penalty) + generate_fn(lines[half:], penalty)
 
-    print(f"Generating {num_cands} candidates per article, diversity penalty {args.diversity_penalty}, batch size {bsz}.")
+    print(f"Generating {num_cands} candidates per article, diversity penalty {args.diversity_penalty}, batch size {bsz}"
+          f"{', bfloat16' if args.bf16 else ''}{', decoder cache on' if args.use_cache else ''}.")
     fout = open(local_tgt_dir, 'a')  # append locally
     start_time = time.time()
     batch_count = 0
@@ -404,6 +408,7 @@ if __name__ == "__main__":
                         help="regenerate an article when more than this many of its candidates have ROUGE = 0")
     parser.add_argument("--no_rouge_check", action="store_true", help="skip the ROUGE = 0 check and the regeneration")
     parser.add_argument("--sync_every", type=int, default=100, help="copy the output file to --tgt_dir every N batches")
+    parser.add_argument("--bf16", action="store_true", help="generate in bfloat16 (faster on GPUs that support it)")
     parser.add_argument("--use_cache", action="store_true",
                         help="turn the decoder cache on (faster, but fails with a CUDA device-side assert on transformers 4.46.3)")
     args = parser.parse_args()
