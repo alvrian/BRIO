@@ -9,6 +9,7 @@ import os
 import shutil
 import json
 import time
+import tempfile
 import contextlib
 
 def generate_summaries_cnndm(args):
@@ -136,7 +137,9 @@ def _patched_decode(self, *args, **kwargs):
 IndoNLGTokenizer.decode = _patched_decode
 
 LANG_ID = 40002  # [indonesian]
-LOCAL_TMP_DIR = "/content/_gen_candidate_tmp"  # fast local disk, no network dependency
+# Working copy of the output file on fast local disk; the result is copied to --tgt_dir regularly.
+# On Colab this is /content/..., elsewhere (for example a Windows PC) the system temp folder.
+LOCAL_TMP_DIR = "/content/_gen_candidate_tmp" if os.path.isdir("/content") else os.path.join(tempfile.gettempdir(), "_gen_candidate_tmp")
 
 # When an article has too many candidates with ROUGE = 0, its candidates are generated again
 # with the diversity penalty multiplied by these factors, one after another.
@@ -248,7 +251,8 @@ def generate_summaries_liputan6(args):
     mname = args.model_dir
     num_cands = args.num_cands
 
-    if not os.path.isdir("/content/drive/MyDrive"):
+    uses_drive = any(str(p).startswith("/content/drive") for p in (mname, args.tgt_dir, args.src_dir))
+    if uses_drive and not os.path.isdir("/content/drive/MyDrive"):
         raise RuntimeError(
             "Google Drive isn't mounted. Run `from google.colab import drive; drive.mount('/content/drive')` "
             "in a notebook cell before running this script."
@@ -272,13 +276,16 @@ def generate_summaries_liputan6(args):
     min_length = 20
     bsz = args.batch_size
 
-    os.makedirs(LOCAL_TMP_DIR, exist_ok=True)
-    local_tgt_dir = os.path.join(LOCAL_TMP_DIR, os.path.basename(args.tgt_dir))
+    tmp_dir = args.tmp_dir or LOCAL_TMP_DIR
+    os.makedirs(tmp_dir, exist_ok=True)
+    local_tgt_dir = os.path.join(tmp_dir, os.path.basename(args.tgt_dir))
+    if os.path.abspath(local_tgt_dir) == os.path.abspath(args.tgt_dir):
+        raise RuntimeError("--tmp_dir must be a different folder from the folder of --tgt_dir")
     log_path = args.tgt_dir + ".regen_log.jsonl"
 
     # --- resume support: the Drive copy is the only data that reliably survived a disconnect ---
     if os.path.exists(args.tgt_dir) and os.path.getsize(args.tgt_dir) > 0:
-        print("Found existing synced output on Drive — copying it locally to resume from.")
+        print("Found existing output at --tgt_dir — copying it to the working folder to resume from.")
         shutil.copyfile(args.tgt_dir, local_tgt_dir)
     elif os.path.exists(local_tgt_dir):
         # a local temp file with the same name left by another run (other split folder or settings)
@@ -286,7 +293,7 @@ def generate_summaries_liputan6(args):
 
     already_done_articles = 0
     if os.path.exists(local_tgt_dir) and os.path.getsize(local_tgt_dir) > 0:
-        with open(local_tgt_dir, 'r') as f:
+        with open(local_tgt_dir, 'r', encoding='utf-8') as f:
             existing_lines = f.readlines()
         # a last line without a newline was cut off in the middle (for example during a copy to Drive)
         if existing_lines and not existing_lines[-1].endswith("\n"):
@@ -295,19 +302,31 @@ def generate_summaries_liputan6(args):
         keep_lines = complete_groups * num_cands
         if keep_lines != len(existing_lines):
             print(f"Trimming {len(existing_lines) - keep_lines} incomplete lines from a partial last group.")
-            with open(local_tgt_dir, 'w') as f:
+            with open(local_tgt_dir, 'w', encoding='utf-8', newline='\n') as f:
                 f.writelines(existing_lines[:keep_lines])
         already_done_articles = complete_groups
         print(f"Resuming: {already_done_articles} articles already have candidates — skipping them.")
 
-    with open(args.src_dir) as source:
+    with open(args.src_dir, encoding='utf-8') as source:
         all_source_lines = [line.strip().lower() for line in source]
     all_ref_lines = None
     if check_rouge:
-        with open(ref_path) as ref:
+        with open(ref_path, encoding='utf-8') as ref:
             all_ref_lines = [line.strip().lower() for line in ref]
         if len(all_ref_lines) != len(all_source_lines):
             raise RuntimeError(f"{args.src_dir} has {len(all_source_lines)} lines but {ref_path} has {len(all_ref_lines)}")
+
+    # --start_index / --end_index: generate only this range of articles (a shard), so that the
+    # split can be divided between machines; shards are joined afterwards with merge_candidates.py
+    start = args.start_index
+    end = args.end_index if args.end_index is not None else len(all_source_lines)
+    if not 0 <= start < end <= len(all_source_lines):
+        raise RuntimeError(f"invalid range {start}-{end} for {len(all_source_lines)} articles")
+    if start > 0 or end < len(all_source_lines):
+        all_source_lines = all_source_lines[start:end]
+        if all_ref_lines is not None:
+            all_ref_lines = all_ref_lines[start:end]
+        print(f"Generating articles {start} to {end - 1} only ({end - start} articles).")
 
     if args.num_samples is not None:
         all_source_lines = all_source_lines[:args.num_samples]
@@ -337,7 +356,7 @@ def generate_summaries_liputan6(args):
 
     print(f"Generating {num_cands} candidates per article, diversity penalty {args.diversity_penalty}, batch size {bsz}"
           f"{', bfloat16' if args.bf16 else ''}{', decoder cache on' if args.use_cache else ''}.")
-    fout = open(local_tgt_dir, 'a')  # append locally
+    fout = open(local_tgt_dir, 'a', encoding='utf-8', newline='\n')  # append locally; '\n' line endings on every OS
     start_time = time.time()
     batch_count = 0
     retried = 0
@@ -353,11 +372,11 @@ def generate_summaries_liputan6(args):
             if check_rouge:
                 refs = all_ref_lines[processed_so_far:processed_so_far + len(batch)]
                 records = _regenerate_bad_articles(batch, refs, cands, generate_fn, args.diversity_penalty,
-                                                   args.max_zero_rouge, processed_so_far)
+                                                   args.max_zero_rouge, start + processed_so_far)
                 if records:
                     retried += len(records)
                     not_fixed += sum(1 for r in records if not r["fixed"])
-                    with open(log_path, "a") as flog:
+                    with open(log_path, "a", encoding="utf-8", newline="\n") as flog:
                         for r in records:
                             flog.write(json.dumps(r) + "\n")
 
@@ -377,11 +396,11 @@ def generate_summaries_liputan6(args):
                       f"peak GPU memory {peak_gb:.1f} GB", flush=True)
             if batch_count % args.sync_every == 0:
                 _sync_to_drive(local_tgt_dir, args.tgt_dir)
-                print(f"  synced to Drive at batch {batch_count}")
+                print(f"  copied to --tgt_dir at batch {batch_count}")
     finally:
         fout.close()
         _sync_to_drive(local_tgt_dir, args.tgt_dir)  # final sync, whether we finished or an exception hit
-        print("Final sync to Drive complete.")
+        print("Final copy to --tgt_dir complete.")
         if check_rouge:
             print(f"ROUGE = 0 check: {retried} articles regenerated in this run, {not_fixed} still above the limit "
                   f"(details in {log_path}).")
@@ -408,6 +427,9 @@ if __name__ == "__main__":
                         help="regenerate an article when more than this many of its candidates have ROUGE = 0")
     parser.add_argument("--no_rouge_check", action="store_true", help="skip the ROUGE = 0 check and the regeneration")
     parser.add_argument("--sync_every", type=int, default=100, help="copy the output file to --tgt_dir every N batches")
+    parser.add_argument("--start_index", type=int, default=0, help="first article of the range to generate (0-based)")
+    parser.add_argument("--end_index", type=int, default=None, help="end of the range, exclusive (default: last article)")
+    parser.add_argument("--tmp_dir", type=str, default=None, help="folder for the working copy (default: /content/... on Colab, else the system temp folder)")
     parser.add_argument("--bf16", action="store_true", help="generate in bfloat16 (faster on GPUs that support it)")
     parser.add_argument("--use_cache", action="store_true",
                         help="turn the decoder cache on (faster, but fails with a CUDA device-side assert on transformers 4.46.3)")
