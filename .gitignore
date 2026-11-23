@@ -28,3 +28,4 @@ backup
 compare-mt
 *.tar.gz
 indobart-liputan6-finetuned
+train.132584-193883.out.regen_log.jsonl

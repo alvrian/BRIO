@@ -51,7 +51,7 @@ Evaluation uses ROUGE, BERTScore, and an LLM judge (Gemini) for consistency, rel
 | `model.py`, `data_utils.py`, `label_smoothing_loss.py`, `utils.py` | Model wrapper, data loader, losses, logging |
 | `compare_and_contrast.py` | Loads a BRIO `.bin` checkpoint or a HuggingFace folder and reports ROUGE on a test file |
 | `generate_outputs.py` | Generates and **saves** summaries from a checkpoint (resumable), with ROUGE |
-| `bertscore_eval.py` | BERTScore for the saved summaries, with paired comparison against the baseline |
+| `bertscore_eval.py` | ROUGE and BERTScore for the saved summaries on one or more partitions, with paired comparisons against the baseline |
 | `llm_judge.py` | LLM-as-a-judge evaluation with the Gemini API, plus a blind human rating sheet |
 | `colab_vsc/*.ipynb` | Colab notebooks that run the steps above (see [Notebooks](#notebooks)) |
 
@@ -219,11 +219,14 @@ python generate_outputs.py --name baseline --model_path ./indobart-liputan6-fine
 python generate_outputs.py --name brio_1_10_seed1 --model_path <checkpoint>/master_1_10/model_generation.bin --out_dir <dir> --sample_n 0
 ```
 
-**BERTScore.** Uses multilingual BERT by default (`--model_type indobenchmark/indobert-base-p1 --num_layers 9` for IndoBERT). Writes `bertscore/bertscore_summary.txt` (BERTScore next to ROUGE, with a bootstrap confidence interval and a sign test per pair) and per-article scores.
+**ROUGE and BERTScore, on one or both partitions.** `bertscore_eval.py` scores every system per article with ROUGE-1/2/L (same settings as above) and BERTScore (multilingual BERT by default; `--model_type indobenchmark/indobert-base-p1 --num_layers 9` for IndoBERT). Give one `--data_dir` per partition, each a folder written by `generate_outputs.py`. Saved scores are reused, so a rerun only scores new systems.
 
 ```console
-python bertscore_eval.py --data_dir <dir> --systems baseline brio_1_10_seed1 --pair baseline brio_1_10_seed1
+python bertscore_eval.py --data_dir canonical=<canonical dir> --data_dir xtreme=<xtreme dir> --report_dir <dir> \
+    --systems baseline brio_1_1_seed1 brio_1_1_seed2 --pair baseline brio_1_1_seed1 --pair baseline brio_1_1_seed2
 ```
+
+It writes `report_<model>.txt` (per partition: a table per system, mean ± SD over seeds per setting, and for each `--pair` the difference in ROUGE and BERTScore F1 with a bootstrap 95% confidence interval and a sign test), plus `results_<model>.csv` and `results_<model>_by_setting.csv`. Systems named `<setting>_seed<N>` are grouped by setting. Per-article scores are kept in each folder's `bertscore/`.
 
 **LLM judge (Gemini).** Scores relevance, consistency, fluency and coherence (1 to 5), lists unsupported statements, and runs a blind head-to-head comparison. Needs `GEMINI_API_KEY` in the environment. It stops at `--max_requests` (default 450, for the free tier) and resumes on the next run. Articles refused by Gemini's content filter are recorded in `judge/blocked.jsonl` and excluded for every system.
 
