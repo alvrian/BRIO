@@ -761,7 +761,8 @@ def run(rank, args):
                     if args.dataset == "liputan6" and args.checkpoint_save_dir is not None:
                         drive_dir = f"{args.checkpoint_save_dir}/{all_step_cnt}" #hardcoded for now, please change later
                         os.makedirs(drive_dir, exist_ok=True)
-                        for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin", 'train_state.json']:
+                        # log.txt / config.txt too, so the loss curves survive a disconnect
+                        for ckpt_name in ["model_ranking.bin", "model_generation.bin", "model_cur.bin", "optimizer.bin", 'train_state.json', 'log.txt', 'config.txt']:
                             src = os.path.join(recorder.dir, ckpt_name)
                             if os.path.exists(src):
                                 _sync_to_drive(src, os.path.join(drive_dir, ckpt_name))

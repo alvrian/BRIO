@@ -1,0 +1,20 @@
+{
+ "split": "train",
+ "num_cands": 32,
+ "articles": 96000,
+ "split_articles": 193883,
+ "ranges": [
+  {
+   "start": 0,
+   "end_exclusive": 34701,
+   "articles": 34701,
+   "file": "train.out"
+  },
+  {
+   "start": 132584,
+   "end_exclusive": 193883,
+   "articles": 61299,
+   "file": "train.132584-193883.out"
+  }
+ ]
+}
